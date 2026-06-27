@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#1a1a1a"/>
+  <!-- outer frame -->
+  <rect x="105" y="62" width="110" height="76" rx="6" fill="none" stroke="#3a3a3a" stroke-width="3"/>
+  <!-- sun circle -->
+  <circle cx="129" cy="84" r="10" fill="none" stroke="#3a3a3a" stroke-width="3"/>
+  <!-- left mountain -->
+  <polyline points="108,136 138,100 158,122" fill="none" stroke="#3a3a3a" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- right mountain (taller) -->
+  <polyline points="145,136 170,93 195,136" fill="none" stroke="#3a3a3a" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- base -->
+  <line x1="105" y1="136" x2="215" y2="136" stroke="#3a3a3a" stroke-width="3" stroke-linecap="round"/>
+</svg>

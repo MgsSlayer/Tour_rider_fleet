@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Tour Rider</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <!-- SheetJS for Excel parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="logo" href="index.html">
+      <img src="css/logo_tour_ride-removebg-preview-1-3-300x175.png" alt="Tour Rider" class="logo-img">
+    </a>
+    <div class="admin-actions">
+      <nav><a href="index.html">View Listings</a></nav>
+      <button class="logout-btn" id="logout-btn" style="display:none">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Password gate ── -->
+  <div id="auth-gate" style="display:none">
+    <div class="auth-gate">
+      <div class="auth-icon">🔒</div>
+      <h2>Admin Access</h2>
+      <p>Enter the admin password to manage vehicles.</p>
+      <div class="alert alert-error" id="auth-error" style="display:none">Incorrect password. Try again.</div>
+      <form id="auth-form">
+        <div class="form-group" style="margin-bottom:1rem;text-align:left">
+          <label for="password-input">Password</label>
+          <input type="password" id="password-input" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary" type="submit" style="width:100%">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Admin panel ── -->
+  <div id="admin-panel" style="display:none">
+
+    <div class="page-header">
+      <h1>Manage Vehicles</h1>
+      <p>Add vehicles one at a time, or upload a spreadsheet for bulk entry.</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tab-add">Add Vehicle</button>
+      <button class="tab-btn" data-tab="tab-upload">Bulk Upload</button>
+    </div>
+
+    <!-- ── Tab: Add Vehicle ── -->
+    <div id="tab-add" class="tab-panel active">
+      <div class="alert" id="add-alert" style="display:none"></div>
+
+      <form id="add-form">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="add-sn">S/N <span class="field-hint">(leave blank to auto-assign)</span></label>
+            <input type="text" id="add-sn" name="sn" placeholder="e.g. 1">
+          </div>
+          <div class="form-group">
+            <label for="add-type">Type</label>
+            <input type="text" id="add-type" name="type" placeholder="e.g. Party Bus">
+          </div>
+          <div class="form-group">
+            <label for="add-vehiclemake">Vehicle Make *</label>
+            <input type="text" id="add-vehiclemake" name="vehiclemake" placeholder="e.g. Ford" required>
+          </div>
+          <div class="form-group">
+            <label for="add-model">Model *</label>
+            <input type="text" id="add-model" name="model" placeholder="e.g. E450" required>
+          </div>
+          <div class="form-group">
+            <label for="add-year">Year</label>
+            <input type="number" id="add-year" name="year" placeholder="e.g. 2022" min="1900" max="2099">
+          </div>
+          <div class="form-group">
+            <label for="add-capacity">Capacity</label>
+            <input type="number" id="add-capacity" name="capacity" placeholder="e.g. 15" min="1">
+          </div>
+          <div class="form-group">
+            <label for="add-luggage">Luggage</label>
+            <select id="add-luggage" name="luggage">
+              <option value="">— Select —</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="add-affprice">Aff. Price ($)</label>
+            <input type="number" id="add-affprice" name="affprice" placeholder="e.g. 180" min="0" step="any">
+          </div>
+          <div class="form-group">
+            <label for="add-retprice">Ret. Price ($)</label>
+            <input type="number" id="add-retprice" name="retprice" placeholder="e.g. 200" min="0" step="any">
+          </div>
+          <div class="form-group full">
+            <label for="add-pics">Image URL (Pics)</label>
+            <input type="url" id="add-pics" name="pics" placeholder="https://…">
+          </div>
+        </div>
+        <button class="btn btn-primary" type="submit" id="add-submit-btn">Add Vehicle</button>
+      </form>
+    </div>
+
+    <!-- ── Tab: Bulk Upload ── -->
+    <div id="tab-upload" class="tab-panel">
+      <div class="alert" id="upload-alert" style="display:none"></div>
+
+      <div class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+        <div class="upload-zone-icon">📂</div>
+        <h3>Drop your spreadsheet here</h3>
+        <p>Supports .csv and .xlsx — or click to browse</p>
+      </div>
+
+      <a class="template-link" id="template-link">Download CSV template</a>
+
+      <div class="alert alert-info" style="margin-top:1rem">
+        <div>
+          <strong>Expected columns</strong> (same as your Google Sheet):<br>
+          <code>S/N, Vehicle Make, Model, Year, Capacity, Luggage, Type, Aff. Price, Ret. Price, Pics</code>
+        </div>
+      </div>
+
+      <!-- Preview -->
+      <div id="preview-wrap" class="preview-wrap" style="display:none">
+        <div class="preview-header">
+          <h3>Preview — <span id="preview-count"></span></h3>
+          <button class="btn btn-primary" id="upload-btn" disabled>Upload Vehicles</button>
+        </div>
+        <div class="preview-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>S/N</th>
+                <th>Make</th>
+                <th>Model</th>
+                <th>Type</th>
+                <th>Aff. Price</th>
+                <th>Ret. Price</th>
+              </tr>
+            </thead>
+            <tbody id="preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <p>© Tour Rider — NYC Limo &amp; Party Bus Rentals</p>
+</footer>
+
+<script src="config.js"></script>
+<script src="js/sheets.js"></script>
+<script src="js/admin.js"></script>
+
+</body>
+</html>
