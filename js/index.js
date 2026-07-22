@@ -33,6 +33,9 @@ async function init() {
     return;
   }
 
+  // Only list vehicles that have at least one photo
+  allVehicles = allVehicles.filter(v => (v.pics || '').trim());
+
   renderSections(allVehicles);
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.toLowerCase().trim();
@@ -109,8 +112,8 @@ function cardHtml(v) {
       <div class="card-body">
         <div class="card-title">${escHtml(title)}</div>
         <div class="card-meta">
-          ${v.capacity ? `<span class="card-meta-item">👥 ${escHtml(v.capacity)} pax</span>`      : ''}
-          ${v.luggage  ? `<span class="card-meta-item">🧳 Luggage: ${escHtml(v.luggage)}</span>` : ''}
+          ${v.capacity ? `<span class="card-meta-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>${escHtml(v.capacity)} pax</span>` : ''}
+          ${v.luggage  ? `<span class="card-meta-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>Luggage: ${escHtml(v.luggage)}</span>` : ''}
         </div>
       </div>
     </a>`;
