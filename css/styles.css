@@ -352,6 +352,8 @@ main {
   object-fit: cover;
   display: block;
 }
+.detail-image-wrap > img:not(.detail-img-placeholder) { cursor: zoom-in; }
+.detail-image-wrap .carousel-slide img { cursor: zoom-in; }
 
 /* ── Carousel ── */
 .carousel-track {
@@ -422,6 +424,42 @@ main {
   border-radius: 4px;
   border-color: var(--accent);
 }
+
+/* ── Lightbox ── */
+.lightbox {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.92);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox.open { display: flex; }
+.lightbox-img {
+  max-width: 88vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: var(--radius-lg);
+}
+.lightbox-close {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.5rem;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  z-index: 1001;
+}
+.lightbox-close:hover { color: var(--accent); }
+.lightbox .carousel-btn  { width: 48px; height: 48px; font-size: 1.75rem; }
+.lightbox .carousel-prev { left: 1.5rem; }
+.lightbox .carousel-next { right: 1.5rem; }
+.lightbox .carousel-dots { bottom: 1.5rem; }
 
 .detail-sidebar {
   background: var(--card);
