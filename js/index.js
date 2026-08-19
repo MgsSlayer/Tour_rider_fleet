@@ -36,6 +36,27 @@ async function init() {
   // Only list vehicles that have at least one photo
   allVehicles = allVehicles.filter(v => (v.pics || '').trim());
 
+  // Prev/next/dot clicks on a card's mini-carousel — stop them from
+  // triggering the card's own link navigation.
+  container.addEventListener('click', e => {
+    const btn = e.target.closest('.carousel-prev, .carousel-next, .carousel-dot');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const wrap  = btn.closest('.card-image');
+    const track = wrap.querySelector('.carousel-track');
+    const dots  = [...wrap.querySelectorAll('.carousel-dot')];
+    let current = Math.max(0, dots.findIndex(d => d.classList.contains('active')));
+
+    if (btn.classList.contains('carousel-prev'))      current = Math.max(0, current - 1);
+    else if (btn.classList.contains('carousel-next')) current = Math.min(dots.length - 1, current + 1);
+    else                                               current = dots.indexOf(btn);
+
+    track.scrollTo({ left: current * track.offsetWidth, behavior: 'smooth' });
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+  });
+
   renderSections(allVehicles);
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.toLowerCase().trim();
@@ -76,6 +97,16 @@ async function init() {
 
       container.appendChild(section);
     });
+
+    // Sync dots when a card's images are swiped directly (scroll doesn't bubble)
+    container.querySelectorAll('.carousel-track').forEach(track => {
+      track.addEventListener('scroll', () => {
+        const dots = track.parentElement.querySelectorAll('.carousel-dot');
+        if (!dots.length) return;
+        const idx = Math.round(track.scrollLeft / track.offsetWidth);
+        dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+      }, { passive: true });
+    });
   }
 }
 
@@ -97,11 +128,25 @@ function groupVehicles(vehicles) {
 }
 
 function cardHtml(v) {
-  const title    = vehicleTitle(v);
-  const firstPic = (v.pics || '').split('|')[0].trim();
-  const imgHtml  = firstPic
-    ? `<img src="${escHtml(firstPic)}" alt="${escHtml(title)}" loading="lazy" onerror="this.src='css/placeholder.svg'">`
-    : `<img src="css/placeholder.svg" alt="No image" class="card-img-placeholder">`;
+  const title = vehicleTitle(v);
+  const urls  = (v.pics || '').split('|').map(u => u.trim()).filter(Boolean);
+
+  let imgHtml;
+  if (urls.length === 0) {
+    imgHtml = `<img src="css/placeholder.svg" alt="No image" class="card-img-placeholder">`;
+  } else if (urls.length === 1) {
+    imgHtml = `<img src="${escHtml(urls[0])}" alt="${escHtml(title)}" loading="lazy" onerror="this.src='css/placeholder.svg'">`;
+  } else {
+    imgHtml = `
+      <div class="carousel-track">
+        ${urls.map((u, i) => `<div class="carousel-slide"><img src="${escHtml(u)}" alt="${escHtml(title)} — photo ${i + 1}" loading="lazy" onerror="this.src='css/placeholder.svg'"></div>`).join('')}
+      </div>
+      <button type="button" class="carousel-btn carousel-prev" aria-label="Previous photo">&#8249;</button>
+      <button type="button" class="carousel-btn carousel-next" aria-label="Next photo">&#8250;</button>
+      <div class="carousel-dots">
+        ${urls.map((_, i) => `<span class="carousel-dot${i === 0 ? ' active' : ''}"></span>`).join('')}
+      </div>`;
+  }
 
   return `
     <a class="vehicle-card" href="vehicle.html?sn=${encodeURIComponent(v.sn)}">
