@@ -124,6 +124,14 @@ function groupVehicles(vehicles) {
 
   const result = groups.filter(g => g.vehicles.length > 0);
   if (other.vehicles.length > 0) result.push(other);
+
+  // Smallest passenger capacity first within each section; unknown capacity goes last
+  result.forEach(g => g.vehicles.sort((a, b) => {
+    const ca = parseInt(a.capacity, 10);
+    const cb = parseInt(b.capacity, 10);
+    return (isNaN(ca) ? Infinity : ca) - (isNaN(cb) ? Infinity : cb);
+  }));
+
   return result;
 }
 
