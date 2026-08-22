@@ -8,12 +8,12 @@ const SECTIONS = [
   {
     id:    'vans-buses',
     title: 'Vans, Buses & Coaches',
-    types: ['standard', 'multipurpose', 'van', 'bus', 'coach', 'minibus', 'mini bus', 'shuttle'],
+    types: ['standard', 'multipurpose', 'van', 'bus', 'coach', 'minibus', 'mini bus', 'shuttle', 'sprinter limo', 'jet', 'executive'],
   },
   {
     id:    'limos-suvs',
     title: 'Stretch Limos, SUVs & Exotics',
-    types: ['limo', 'limousine', 'suv', 'jet', 'exotic', 'stretch', 'luxury'],
+    types: ['limo', 'limousine', 'suv', 'exotic', 'stretch', 'luxury', 'sedan'],
   },
 ];
 
@@ -25,6 +25,26 @@ async function init() {
   const container  = document.getElementById('sections-container');
   const searchInput = document.getElementById('search');
   const countEl    = document.getElementById('count');
+  const sectionJump = document.getElementById('section-jump');
+  const searchBox    = document.getElementById('search-box');
+  const searchToggle = document.getElementById('search-toggle');
+
+  // Mobile: search collapses to an icon; tapping it expands the input over
+  // the section dropdown's space until it's cleared/closed again.
+  searchToggle.addEventListener('click', () => {
+    searchBox.classList.add('active');
+    searchInput.focus();
+  });
+  searchInput.addEventListener('blur', () => {
+    if (!searchInput.value.trim()) searchBox.classList.remove('active');
+  });
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      searchInput.blur();
+      renderSections(allVehicles);
+    }
+  });
 
   try {
     allVehicles = await fetchVehicles();
@@ -57,6 +77,12 @@ async function init() {
     dots.forEach((d, i) => d.classList.toggle('active', i === current));
   });
 
+  sectionJump.addEventListener('change', () => {
+    const id = sectionJump.value;
+    sectionJump.value = '';
+    if (id) document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
   renderSections(allVehicles);
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.toLowerCase().trim();
@@ -74,12 +100,16 @@ async function init() {
     if (vehicles.length === 0) {
       emptyState.style.display = 'block';
       countEl.textContent      = '0 vehicles';
+      sectionJump.innerHTML    = '<option value="">Jump to section…</option>';
       return;
     }
     emptyState.style.display = 'none';
     countEl.textContent = `${vehicles.length} vehicle${vehicles.length !== 1 ? 's' : ''}`;
 
     const groups = groupVehicles(vehicles);
+
+    sectionJump.innerHTML = '<option value="">Jump to section…</option>' +
+      groups.map(g => `<option value="${g.id}">${escHtml(g.title)}</option>`).join('');
 
     groups.forEach(group => {
       if (group.vehicles.length === 0) return;
@@ -117,7 +147,7 @@ function groupVehicles(vehicles) {
   vehicles.forEach(v => {
     const type    = (v.type || '').toLowerCase().trim();
     const matched = groups.find(g =>
-      g.types.some(t => type === t || type.includes(t) || t.includes(type))
+      g.types.some(t => type.includes(t))
     );
     (matched || other).vehicles.push(v);
   });

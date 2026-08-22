@@ -147,6 +147,21 @@ main {
 .search-box input::placeholder { color: var(--muted); }
 .search-box input:focus { outline: none; border-color: var(--accent); }
 
+.search-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.search-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
 .filter-select {
   padding: .7rem .9rem;
   background: var(--card);
@@ -162,7 +177,7 @@ main {
 .filter-select option { background: #1a1a1a; }
 
 /* ── Sections ── */
-.vehicle-section { margin-bottom: 3.5rem; }
+.vehicle-section { margin-bottom: 3.5rem; scroll-margin-top: 150px; }
 
 .section-header {
   display: flex;
@@ -790,8 +805,20 @@ footer {
   main { padding: 1.5rem 1rem; }
   .form-grid { grid-template-columns: 1fr; }
   .vehicle-grid { grid-template-columns: 1fr; }
-  .filters { flex-direction: column; }
+  .filters { flex-direction: row; flex-wrap: nowrap; align-items: stretch; }
   .page-header h1 { font-size: 1.5rem; }
+
+  /* Search collapses to an icon beside the section dropdown; expanding it
+     takes over the dropdown's space until cleared/closed. */
+  #section-jump  { order: 1; flex: 1; min-width: 0; }
+  .search-box    { order: 2; flex: 0 0 44px; min-width: 0; }
+  .search-toggle { display: flex; }
+  .search-box input { display: none; }
+
+  .search-box.active         { flex: 1; }
+  .search-box.active .search-toggle { display: none; }
+  .search-box.active input   { display: block; }
+  .search-box.active ~ #section-jump { display: none; }
 
   .detail-actions { gap: 1rem; }
   .detail-actions .share-btn { align-self: center; }
