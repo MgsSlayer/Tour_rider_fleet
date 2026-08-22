@@ -25,9 +25,29 @@ async function init() {
   const container  = document.getElementById('sections-container');
   const searchInput = document.getElementById('search');
   const countEl    = document.getElementById('count');
-  const sectionJump = document.getElementById('section-jump');
+  const sectionJump      = document.getElementById('section-jump');
+  const sectionJumpBtn   = document.getElementById('section-jump-btn');
+  const sectionJumpLabel = document.getElementById('section-jump-label');
+  const sectionJumpList  = document.getElementById('section-jump-list');
+  const SECTION_JUMP_PLACEHOLDER = 'Jump to section…';
   const searchBox    = document.getElementById('search-box');
   const searchToggle = document.getElementById('search-toggle');
+
+  // Cards animate in as they scroll into view
+  const revealSupported = 'IntersectionObserver' in window;
+  const revealObserver = revealSupported ? new IntersectionObserver((entries, obs) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('in-view');
+      obs.unobserve(entry.target);
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }) : null;
+
+  function revealCards() {
+    const cards = container.querySelectorAll('.vehicle-card:not(.in-view)');
+    if (!revealSupported) { cards.forEach(c => c.classList.add('in-view')); return; }
+    cards.forEach(c => revealObserver.observe(c));
+  }
 
   // Mobile: search collapses to an icon; tapping it expands the input over
   // the section dropdown's space until it's cleared/closed again.
@@ -77,10 +97,31 @@ async function init() {
     dots.forEach((d, i) => d.classList.toggle('active', i === current));
   });
 
-  sectionJump.addEventListener('change', () => {
-    const id = sectionJump.value;
-    sectionJump.value = '';
-    if (id) document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  sectionJumpBtn.addEventListener('click', () => {
+    const open = sectionJump.classList.toggle('open');
+    sectionJumpBtn.setAttribute('aria-expanded', open);
+  });
+
+  sectionJumpList.addEventListener('click', e => {
+    const opt = e.target.closest('.custom-select-option');
+    if (!opt) return;
+    sectionJump.classList.remove('open');
+    sectionJumpBtn.setAttribute('aria-expanded', 'false');
+    document.getElementById(opt.dataset.id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  document.addEventListener('click', e => {
+    if (!sectionJump.contains(e.target)) {
+      sectionJump.classList.remove('open');
+      sectionJumpBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && sectionJump.classList.contains('open')) {
+      sectionJump.classList.remove('open');
+      sectionJumpBtn.setAttribute('aria-expanded', 'false');
+    }
   });
 
   renderSections(allVehicles);
@@ -100,7 +141,8 @@ async function init() {
     if (vehicles.length === 0) {
       emptyState.style.display = 'block';
       countEl.textContent      = '0 vehicles';
-      sectionJump.innerHTML    = '<option value="">Jump to section…</option>';
+      sectionJumpLabel.textContent = SECTION_JUMP_PLACEHOLDER;
+      sectionJumpList.innerHTML    = '';
       return;
     }
     emptyState.style.display = 'none';
@@ -108,8 +150,10 @@ async function init() {
 
     const groups = groupVehicles(vehicles);
 
-    sectionJump.innerHTML = '<option value="">Jump to section…</option>' +
-      groups.map(g => `<option value="${g.id}">${escHtml(g.title)}</option>`).join('');
+    sectionJumpLabel.textContent = SECTION_JUMP_PLACEHOLDER;
+    sectionJumpList.innerHTML = groups.map(g =>
+      `<li class="custom-select-option" role="option" data-id="${g.id}">${escHtml(g.title)}</li>`
+    ).join('');
 
     groups.forEach(group => {
       if (group.vehicles.length === 0) return;
@@ -137,6 +181,8 @@ async function init() {
         dots.forEach((d, i) => d.classList.toggle('active', i === idx));
       }, { passive: true });
     });
+
+    revealCards();
   }
 }
 
