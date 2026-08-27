@@ -3,12 +3,12 @@ const SECTIONS = [
   {
     id:    'party-buses',
     title: 'Party Buses',
-    types: ['party bus', 'partybus', 'party'],
+    types: ['party bus', 'partybus', 'party', 'sprinter limo'],
   },
   {
     id:    'vans-buses',
     title: 'Vans, Buses & Coaches',
-    types: ['standard', 'multipurpose', 'van', 'bus', 'coach', 'minibus', 'mini bus', 'shuttle', 'sprinter limo', 'jet', 'executive'],
+    types: ['standard', 'multipurpose', 'van', 'bus', 'coach', 'minibus', 'mini bus', 'shuttle', 'jet', 'executive'],
   },
   {
     id:    'limos-suvs',
@@ -29,7 +29,7 @@ async function init() {
   const sectionJumpBtn   = document.getElementById('section-jump-btn');
   const sectionJumpLabel = document.getElementById('section-jump-label');
   const sectionJumpList  = document.getElementById('section-jump-list');
-  const SECTION_JUMP_PLACEHOLDER = 'Jump to section…';
+  const SECTION_JUMP_PLACEHOLDER = 'Select category';
   const searchBox    = document.getElementById('search-box');
   const searchToggle = document.getElementById('search-toggle');
 
