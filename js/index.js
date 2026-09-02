@@ -17,6 +17,13 @@ const SECTIONS = [
   },
 ];
 
+// State picker — add match aliases here as the sheet's State column varies.
+const STATES = [
+  { id: 'ny',    label: 'NY',    match: ['ny', 'nyc', 'new york'] },
+  { id: 'nj',    label: 'NJ',    match: ['nj', 'new jersey'] },
+  { id: 'miami', label: 'Miami', match: ['miami', 'florida', 'fl'] },
+];
+
 let allVehicles = [];
 
 async function init() {
@@ -25,13 +32,9 @@ async function init() {
   const container  = document.getElementById('sections-container');
   const searchInput = document.getElementById('search');
   const countEl    = document.getElementById('count');
-  const sectionJump      = document.getElementById('section-jump');
-  const sectionJumpBtn   = document.getElementById('section-jump-btn');
-  const sectionJumpLabel = document.getElementById('section-jump-label');
-  const sectionJumpList  = document.getElementById('section-jump-list');
-  const SECTION_JUMP_PLACEHOLDER = 'Select category';
-  const searchBox    = document.getElementById('search-box');
-  const searchToggle = document.getElementById('search-toggle');
+
+  const openSections = new Set();  // section ids the user has manually expanded
+  const sectionStates = {};        // section id -> selected state, defaults to 'ny' per block
 
   // Cards animate in as they scroll into view
   const revealSupported = 'IntersectionObserver' in window;
@@ -49,20 +52,11 @@ async function init() {
     cards.forEach(c => revealObserver.observe(c));
   }
 
-  // Mobile: search collapses to an icon; tapping it expands the input over
-  // the section dropdown's space until it's cleared/closed again.
-  searchToggle.addEventListener('click', () => {
-    searchBox.classList.add('active');
-    searchInput.focus();
-  });
-  searchInput.addEventListener('blur', () => {
-    if (!searchInput.value.trim()) searchBox.classList.remove('active');
-  });
   searchInput.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       searchInput.value = '';
       searchInput.blur();
-      renderSections(allVehicles);
+      applyFilters();
     }
   });
 
@@ -97,80 +91,84 @@ async function init() {
     dots.forEach((d, i) => d.classList.toggle('active', i === current));
   });
 
-  sectionJumpBtn.addEventListener('click', () => {
-    const open = sectionJump.classList.toggle('open');
-    sectionJumpBtn.setAttribute('aria-expanded', open);
+  // Category blocks are collapsed by default — click the header to reveal
+  // its vehicles. Several can stay open at once (no accordion collapse).
+  container.addEventListener('click', e => {
+    const toggle = e.target.closest('.section-toggle');
+    if (!toggle) return;
+    const section = toggle.closest('.vehicle-section');
+    const open = section.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) openSections.add(section.id); else openSections.delete(section.id);
   });
 
-  sectionJumpList.addEventListener('click', e => {
-    const opt = e.target.closest('.custom-select-option');
-    if (!opt) return;
-    sectionJump.classList.remove('open');
-    sectionJumpBtn.setAttribute('aria-expanded', 'false');
-    document.getElementById(opt.dataset.id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Each category has its own NYC/NJ · Miami dropdown
+  container.addEventListener('change', e => {
+    const select = e.target.closest('.section-state');
+    if (!select) return;
+    sectionStates[select.dataset.sectionId] = select.value;
+    applyFilters();
   });
 
-  document.addEventListener('click', e => {
-    if (!sectionJump.contains(e.target)) {
-      sectionJump.classList.remove('open');
-      sectionJumpBtn.setAttribute('aria-expanded', 'false');
-    }
-  });
+  searchInput.addEventListener('input', applyFilters);
+  applyFilters();
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && sectionJump.classList.contains('open')) {
-      sectionJump.classList.remove('open');
-      sectionJumpBtn.setAttribute('aria-expanded', 'false');
-    }
-  });
-
-  renderSections(allVehicles);
-  searchInput.addEventListener('input', () => {
+  function applyFilters() {
     const q = searchInput.value.toLowerCase().trim();
-    const filtered = q
-      ? allVehicles.filter(v =>
-          [v.vehiclemake, v.model, v.type, v.year].join(' ').toLowerCase().includes(q))
-      : allVehicles;
-    renderSections(filtered);
-  });
+    const filtered = allVehicles.filter(v =>
+      !q || [v.vehiclemake, v.model, v.type, v.year].join(' ').toLowerCase().includes(q));
+    // While actively searching, force-open every matching section so
+    // results are visible without an extra click; clearing the search
+    // reverts sections to whatever the user had manually opened.
+    renderSections(filtered, !!q);
+  }
 
-  function renderSections(vehicles) {
+  function renderSections(vehicles, forceOpen) {
     loading.style.display = 'none';
     container.innerHTML   = '';
 
     if (vehicles.length === 0) {
       emptyState.style.display = 'block';
       countEl.textContent      = '0 vehicles';
-      sectionJumpLabel.textContent = SECTION_JUMP_PLACEHOLDER;
-      sectionJumpList.innerHTML    = '';
       return;
     }
-    emptyState.style.display = 'none';
-    countEl.textContent = `${vehicles.length} vehicle${vehicles.length !== 1 ? 's' : ''}`;
 
     const groups = groupVehicles(vehicles);
-
-    sectionJumpLabel.textContent = SECTION_JUMP_PLACEHOLDER;
-    sectionJumpList.innerHTML = groups.map(g =>
-      `<li class="custom-select-option" role="option" data-id="${g.id}">${escHtml(g.title)}</li>`
-    ).join('');
+    let totalShown = 0;
 
     groups.forEach(group => {
       if (group.vehicles.length === 0) return;
 
+      const state = sectionStates[group.id] || (sectionStates[group.id] = 'ny');
+      const shown = group.vehicles.filter(v => vehicleState(v) === state);
+      totalShown += shown.length;
+
+      const isOpen = forceOpen || openSections.has(group.id);
+
       const section = document.createElement('div');
-      section.className = 'vehicle-section';
+      section.className = 'vehicle-section' + (isOpen ? ' open' : '');
       section.id        = group.id;
 
       section.innerHTML = `
         <div class="section-header">
-          <span class="section-title-text">${group.title}</span>
-          <span class="section-count">${group.vehicles.length}</span>
+          <button type="button" class="section-toggle" aria-expanded="${isOpen}">
+            <span class="section-title-text">${group.title}</span>
+            <span class="section-count">${shown.length}</span>
+            <svg class="section-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <select class="section-state filter-select" data-section-id="${group.id}" aria-label="State for ${escHtml(group.title)}">
+            ${STATES.map(s => `<option value="${s.id}"${s.id === state ? ' selected' : ''}>${escHtml(s.label)}</option>`).join('')}
+          </select>
         </div>
-        <div class="vehicle-grid">${group.vehicles.map(cardHtml).join('')}</div>`;
+        <div class="section-collapse">
+          <div class="vehicle-grid">${shown.map(cardHtml).join('')}</div>
+        </div>`;
 
       container.appendChild(section);
     });
+
+    emptyState.style.display = 'none';
+    countEl.textContent = `${totalShown} vehicle${totalShown !== 1 ? 's' : ''}`;
 
     // Sync dots when a card's images are swiped directly (scroll doesn't bubble)
     container.querySelectorAll('.carousel-track').forEach(track => {
@@ -184,6 +182,14 @@ async function init() {
 
     revealCards();
   }
+}
+
+// Legacy rows with no State value are treated as NY.
+function vehicleState(v) {
+  const s = (v.state || '').toLowerCase().trim();
+  if (!s) return 'ny';
+  const opt = STATES.find(o => o.match.some(k => s.includes(k)));
+  return opt ? opt.id : 'ny';
 }
 
 function groupVehicles(vehicles) {

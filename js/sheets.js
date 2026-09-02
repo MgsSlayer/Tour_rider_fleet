@@ -1,7 +1,7 @@
 // Shared utilities — loaded before page-specific scripts.
 
 async function fetchVehicles() {
-  const range = encodeURIComponent(`${CONFIG.SHEET_NAME}!A:J`);
+  const range = encodeURIComponent(`${CONFIG.SHEET_NAME}!A:L`);
   const url   = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}/values/${range}?key=${CONFIG.API_KEY}`;
 
   const res = await fetch(url);
@@ -83,5 +83,6 @@ function normalizeRow(row, headerMap) {
     affprice:    get('affprice', 'affiliateprice', 'affprice', 'cheapestprice', 'lowprice', 'startingprice'),
     retprice:    get('retprice', 'retailprice', 'price', 'cost', 'standardprice'),
     pics:        get('pics', 'pic', 'image', 'imageurl', 'photo', 'photourl', 'picture'),
+    state:       get('state', 'location', 'market'),
   };
 }

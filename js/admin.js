@@ -67,6 +67,7 @@ document.getElementById('add-form').addEventListener('submit', async e => {
     affprice:    fd.get('affprice'),
     retprice:    fd.get('retprice'),
     pics:        fd.get('pics'),
+    state:       fd.get('state'),
   };
 
   try {
@@ -196,6 +197,7 @@ function renderPreview(vehicles) {
       <td>${v.vehiclemake ? escHtml(v.vehiclemake) : MISSING_BADGE}</td>
       <td>${v.model ? escHtml(v.model) : MISSING_BADGE}</td>
       <td>${escHtml(v.type)}</td>
+      <td>${v.state ? escHtml(v.state) : MISSING_BADGE}</td>
       <td>${escHtml(v.affprice)}</td>
       <td>${escHtml(v.retprice)}</td>
     </tr>`;
@@ -231,9 +233,9 @@ document.getElementById('upload-btn').addEventListener('click', async () => {
 // CSV template download
 document.getElementById('template-link').addEventListener('click', () => {
   const csv = [
-    'S/N,Vehicle Make,Model,Year,Capacity,Luggage,Type,Aff. Price,Ret. Price,Pics',
-    '1,Ford,E450,,15,Yes,Party Bus,180,200,https://example.com/photo.jpg',
-    '2,Mercedes,Sprinter,2022,12,Yes,Luxury Van,250,300,https://example.com/photo2.jpg',
+    'S/N,Vehicle Make,Model,Year,Capacity,Luggage,Type,Aff. Price,Ret. Price,Pics,State',
+    '1,Ford,E450,,15,Yes,Party Bus,180,200,https://example.com/photo.jpg,NY',
+    '2,Mercedes,Sprinter,2022,12,Yes,Luxury Van,250,300,https://example.com/photo2.jpg,Miami',
   ].join('\n');
   const a   = document.createElement('a');
   a.href    = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
