@@ -70,6 +70,14 @@
             <input type="text" id="add-type" name="type" placeholder="e.g. Party Bus">
           </div>
           <div class="form-group">
+            <label for="add-state">State *</label>
+            <select id="add-state" name="state" required>
+              <option value="">— Select —</option>
+              <option value="NYC/NJ">NYC/NJ</option>
+              <option value="Miami">Miami</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label for="add-vehiclemake">Vehicle Make *</label>
             <input type="text" id="add-vehiclemake" name="vehiclemake" placeholder="e.g. Ford" required>
           </div>
@@ -126,7 +134,7 @@
       <div class="alert alert-info" style="margin-top:1rem">
         <div>
           <strong>Expected columns</strong> (same as your Google Sheet):<br>
-          <code>S/N, Vehicle Make, Model, Year, Capacity, Luggage, Type, Aff. Price, Ret. Price, Pics</code>
+          <code>S/N, Vehicle Make, Model, Year, Capacity, Luggage, Type, Aff. Price, Ret. Price, Pics, State</code>
         </div>
       </div>
 
@@ -144,6 +152,7 @@
                 <th>Make</th>
                 <th>Model</th>
                 <th>Type</th>
+                <th>State</th>
                 <th>Aff. Price</th>
                 <th>Ret. Price</th>
               </tr>

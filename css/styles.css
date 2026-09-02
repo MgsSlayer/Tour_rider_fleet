@@ -147,21 +147,6 @@ main {
 .search-box input::placeholder { color: var(--muted); }
 .search-box input:focus { outline: none; border-color: var(--accent); }
 
-.search-toggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--muted);
-  cursor: pointer;
-  transition: border-color .15s, color .15s;
-}
-.search-toggle:hover { border-color: var(--accent); color: var(--accent); }
-
 .filter-select {
   padding: .7rem .9rem;
   background: var(--card);
@@ -176,70 +161,47 @@ main {
 .filter-select:focus { outline: none; border-color: var(--accent); }
 .filter-select option { background: #1a1a1a; }
 
-/* ── Custom dropdown (jump to section) ── */
-.custom-select { position: relative; }
-.custom-select-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .5rem;
-  padding: .7rem .9rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: .9rem;
-  color: var(--text);
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color .15s;
-}
-.custom-select-btn:hover,
-.custom-select-btn:focus { outline: none; border-color: var(--accent); }
-.custom-select-caret { flex-shrink: 0; color: var(--muted); transition: transform .15s; }
-.custom-select.open .custom-select-caret { transform: rotate(180deg); }
+/* ── Sections (collapsible) ── */
+.vehicle-section { margin-bottom: 0rem; scroll-margin-top: 150px; }
+.vehicle-section.open { margin-bottom: 1.5rem; }
 
-.custom-select-list {
-  display: none;
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  background: #1a1a1a;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  list-style: none;
-  padding: .35rem;
-  margin: 0;
-  max-height: 280px;
-  overflow-y: auto;
-  z-index: 50;
-  box-shadow: var(--shadow-lg);
-}
-.custom-select.open .custom-select-list { display: block; }
+.section-header { display: flex; align-items: center; gap: .75rem; }
 
-.custom-select-option {
-  padding: .55rem .75rem;
-  border-radius: 6px;
-  font-size: .9rem;
-  color: var(--text);
-  cursor: pointer;
-  transition: background .1s;
-}
-.custom-select-option:hover,
-.custom-select-option.highlighted { background: #3a3a3a; }
-
-/* ── Sections ── */
-.vehicle-section { margin-bottom: 3.5rem; scroll-margin-top: 150px; }
-
-.section-header {
+.section-toggle {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: .6rem;
-  margin-bottom: 1.75rem;
+  padding: 1.25rem 1rem;
   text-align: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s;
 }
+.section-toggle:hover { border-color: var(--border-gold); }
+
+/* Per-category state dropdown, sits beside the toggle block */
+.section-state { flex-shrink: 0; align-self: center; }
+
+.section-chevron { color: var(--muted); transition: transform .2s; }
+.vehicle-section.open .section-chevron { transform: rotate(180deg); }
+
+.section-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .3s ease;
+  margin-top: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+}
+.section-collapse > .vehicle-grid { overflow: hidden; min-height: 0; padding: 1.5rem; }
+.vehicle-section.open .section-collapse { grid-template-rows: 1fr; margin-top: .75rem; border-color: var(--border); }
 
 .section-title-text {
   font-size: 1.6rem;
@@ -861,20 +823,26 @@ footer {
   main { padding: 1.5rem 1rem; }
   .form-grid { grid-template-columns: 1fr; }
   .vehicle-grid { grid-template-columns: 1fr; }
-  .filters { flex-direction: row; flex-wrap: nowrap; align-items: stretch; }
   .page-header h1 { font-size: 1.5rem; }
 
-  /* Search collapses to an icon beside the section dropdown; expanding it
-     takes over the dropdown's space until cleared/closed. */
-  #section-jump  { order: 1; flex: 1; min-width: 0; }
-  .search-box    { order: 2; flex: 0 0 44px; min-width: 0; }
-  .search-toggle { display: flex; }
-  .search-box input { display: none; }
+  /* Keep the toggle block and state dropdown on one row — shrink both
+     rather than let the dropdown wrap to its own line. */
+  .section-header { gap: .5rem; }
+  .section-toggle {
+    flex-direction: row;
+    padding: .85rem .9rem;
+    gap: .5rem;
+  }
+  .section-title-text { flex: 1; min-width: 0; font-size: 1rem; letter-spacing: .04em; text-align: left; }
+  .section-title-text::after { display: none; }
+  .section-count { flex-shrink: 0; }
+  .section-chevron { flex-shrink: 0; width: 16px; height: 16px; }
 
-  .search-box.active         { flex: 1; }
-  .search-box.active .search-toggle { display: none; }
-  .search-box.active input   { display: block; }
-  .search-box.active ~ #section-jump { display: none; }
+  .section-state {
+    padding: .5rem .4rem;
+    font-size: .78rem;
+    max-width: 92px;
+  }
 
   .detail-actions { gap: 1rem; }
   .detail-actions .share-btn { align-self: center; }
