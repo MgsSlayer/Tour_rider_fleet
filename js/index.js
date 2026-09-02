@@ -19,8 +19,9 @@ const SECTIONS = [
 
 // State picker — add match aliases here as the sheet's State column varies.
 const STATES = [
-  { id: 'nynj',  label: 'NYC/NJ', match: ['nynj', 'ny/nj', 'nyc', 'new york', 'nj', 'new jersey'] },
-  { id: 'miami', label: 'Miami',  match: ['miami', 'florida', 'fl'] },
+  { id: 'ny',    label: 'NY',    match: ['ny', 'nyc', 'new york'] },
+  { id: 'nj',    label: 'NJ',    match: ['nj', 'new jersey'] },
+  { id: 'miami', label: 'Miami', match: ['miami', 'florida', 'fl'] },
 ];
 
 let allVehicles = [];
@@ -33,7 +34,7 @@ async function init() {
   const countEl    = document.getElementById('count');
 
   const openSections = new Set();  // section ids the user has manually expanded
-  const sectionStates = {};        // section id -> selected state, defaults to 'nynj' per block
+  const sectionStates = {};        // section id -> selected state, defaults to 'ny' per block
 
   // Cards animate in as they scroll into view
   const revealSupported = 'IntersectionObserver' in window;
@@ -138,7 +139,7 @@ async function init() {
     groups.forEach(group => {
       if (group.vehicles.length === 0) return;
 
-      const state = sectionStates[group.id] || (sectionStates[group.id] = 'nynj');
+      const state = sectionStates[group.id] || (sectionStates[group.id] = 'ny');
       const shown = group.vehicles.filter(v => vehicleState(v) === state);
       totalShown += shown.length;
 
@@ -183,12 +184,12 @@ async function init() {
   }
 }
 
-// Legacy rows with no State value are treated as NYC/NJ.
+// Legacy rows with no State value are treated as NY.
 function vehicleState(v) {
   const s = (v.state || '').toLowerCase().trim();
-  if (!s) return 'nynj';
+  if (!s) return 'ny';
   const opt = STATES.find(o => o.match.some(k => s.includes(k)));
-  return opt ? opt.id : 'nynj';
+  return opt ? opt.id : 'ny';
 }
 
 function groupVehicles(vehicles) {

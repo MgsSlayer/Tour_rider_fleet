@@ -234,7 +234,7 @@ document.getElementById('upload-btn').addEventListener('click', async () => {
 document.getElementById('template-link').addEventListener('click', () => {
   const csv = [
     'S/N,Vehicle Make,Model,Year,Capacity,Luggage,Type,Aff. Price,Ret. Price,Pics,State',
-    '1,Ford,E450,,15,Yes,Party Bus,180,200,https://example.com/photo.jpg,NYC/NJ',
+    '1,Ford,E450,,15,Yes,Party Bus,180,200,https://example.com/photo.jpg,NY',
     '2,Mercedes,Sprinter,2022,12,Yes,Luxury Van,250,300,https://example.com/photo2.jpg,Miami',
   ].join('\n');
   const a   = document.createElement('a');
