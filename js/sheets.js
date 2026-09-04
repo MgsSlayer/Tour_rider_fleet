@@ -83,6 +83,6 @@ function normalizeRow(row, headerMap) {
     affprice:    get('affprice', 'affiliateprice', 'affprice', 'cheapestprice', 'lowprice', 'startingprice'),
     retprice:    get('retprice', 'retailprice', 'price', 'cost', 'standardprice'),
     pics:        get('pics', 'pic', 'image', 'imageurl', 'photo', 'photourl', 'picture'),
-    state:       get('state', 'location', 'market'),
+    city:        get('city', 'state', 'location', 'market'),
   };
 }

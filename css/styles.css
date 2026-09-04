@@ -162,32 +162,34 @@ main {
 .filter-select option { background: #1a1a1a; }
 
 /* ── Sections (collapsible) ── */
-.vehicle-section { margin-bottom: 0rem; scroll-margin-top: 150px; }
-.vehicle-section.open { margin-bottom: 1.5rem; }
-
-.section-header { display: flex; align-items: center; gap: .75rem; }
+/* One bordered group holding every category row, like a classic accordion —
+   rows sit flush with divider lines, not separate floating cards. */
+#sections-container {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.vehicle-section { scroll-margin-top: 150px; border-bottom: .4rem solid var(--bg); }
+.vehicle-section:last-child { border-bottom: none; }
 
 .section-toggle {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: .6rem;
-  padding: 1.25rem 1rem;
+  padding: 1.6rem 1rem;
   text-align: center;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background: none;
+  border: none;
   cursor: pointer;
   font-family: inherit;
-  transition: border-color .15s;
+  color: inherit;
+  transition: background .15s;
 }
-.section-toggle:hover { border-color: var(--border-gold); }
-
-/* Per-category state dropdown, sits beside the toggle block */
-.section-state { flex-shrink: 0; align-self: center; }
+.section-toggle:hover { background: var(--card-hover); }
 
 .section-chevron { color: var(--muted); transition: transform .2s; }
 .vehicle-section.open .section-chevron { transform: rotate(180deg); }
@@ -196,12 +198,9 @@ main {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows .3s ease;
-  margin-top: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
 }
 .section-collapse > .vehicle-grid { overflow: hidden; min-height: 0; padding: 1.5rem; }
-.vehicle-section.open .section-collapse { grid-template-rows: 1fr; margin-top: .75rem; border-color: var(--border); }
+.vehicle-section.open .section-collapse { grid-template-rows: 1fr; border-top: 1px solid var(--border); }
 
 .section-title-text {
   font-size: 1.6rem;
@@ -825,24 +824,16 @@ footer {
   .vehicle-grid { grid-template-columns: 1fr; }
   .page-header h1 { font-size: 1.5rem; }
 
-  /* Keep the toggle block and state dropdown on one row — shrink both
-     rather than let the dropdown wrap to its own line. */
-  .section-header { gap: .5rem; }
+  /* Closed category blocks stay to one compact row so several fit on screen */
   .section-toggle {
     flex-direction: row;
-    padding: .85rem .9rem;
+    padding: 1.1rem .9rem;
     gap: .5rem;
   }
-  .section-title-text { flex: 1; min-width: 0; font-size: 1rem; letter-spacing: .04em; text-align: left; }
+  .section-title-text { flex: 1; min-width: 0; font-size: .95rem; letter-spacing: .04em; text-align: left; }
   .section-title-text::after { display: none; }
   .section-count { flex-shrink: 0; }
-  .section-chevron { flex-shrink: 0; width: 16px; height: 16px; }
-
-  .section-state {
-    padding: .5rem .4rem;
-    font-size: .78rem;
-    max-width: 92px;
-  }
+  .section-chevron { flex-shrink: 0; width: 16px; height: 16px; margin-left: .35rem; }
 
   .detail-actions { gap: 1rem; }
   .detail-actions .share-btn { align-self: center; }

@@ -6,7 +6,7 @@
 
 var SHEET_ID   = 'YOUR_GOOGLE_SHEET_ID_HERE'; // same value as in config.js
 var SHEET_NAME = 'Vehicles';
-var HEADERS    = ['S/N','Vehicle Make','Model','Year','Capacity','Luggage','Type','Aff. Price','Ret. Price','Pics','Driver','State'];
+var HEADERS    = ['S/N','Vehicle Make','Model','Year','Capacity','Luggage','Type','Aff. Price','Ret. Price','Pics','Driver','City'];
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
@@ -37,7 +37,7 @@ function doPost(e) {
         v.retprice    || '',
         v.pics        || '',
         v.driver      || '',
-        v.state       || '',
+        v.city || v.state || '',
       ]);
     });
 
