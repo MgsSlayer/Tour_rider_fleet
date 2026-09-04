@@ -17,10 +17,9 @@ const SECTIONS = [
   },
 ];
 
-// State picker — add match aliases here as the sheet's State column varies.
-const STATES = [
-  { id: 'ny',    label: 'NY',    match: ['ny', 'nyc', 'new york'] },
-  { id: 'nj',    label: 'NJ',    match: ['nj', 'new jersey'] },
+// City picker — add match aliases here as the sheet's City column varies.
+const CITIES = [
+  { id: 'nynj',  label: 'NY/NJ', match: ['nynj', 'ny/nj', 'ny', 'nj', 'nyc', 'new york', 'new jersey'] },
   { id: 'miami', label: 'Miami', match: ['miami', 'florida', 'fl'] },
 ];
 
@@ -34,7 +33,8 @@ async function init() {
   const countEl    = document.getElementById('count');
 
   const openSections = new Set();  // section ids the user has manually expanded
-  const sectionStates = {};        // section id -> selected state, defaults to 'ny' per block
+  const cityPicker = document.getElementById('city-picker');
+  let selectedCity = cityPicker.value;
 
   // Cards animate in as they scroll into view
   const revealSupported = 'IntersectionObserver' in window;
@@ -58,6 +58,11 @@ async function init() {
       searchInput.blur();
       applyFilters();
     }
+  });
+
+  cityPicker.addEventListener('change', () => {
+    selectedCity = cityPicker.value;
+    applyFilters();
   });
 
   try {
@@ -102,21 +107,17 @@ async function init() {
     if (open) openSections.add(section.id); else openSections.delete(section.id);
   });
 
-  // Each category has its own NYC/NJ · Miami dropdown
-  container.addEventListener('change', e => {
-    const select = e.target.closest('.section-state');
-    if (!select) return;
-    sectionStates[select.dataset.sectionId] = select.value;
-    applyFilters();
-  });
-
   searchInput.addEventListener('input', applyFilters);
   applyFilters();
 
   function applyFilters() {
     const q = searchInput.value.toLowerCase().trim();
-    const filtered = allVehicles.filter(v =>
-      !q || [v.vehiclemake, v.model, v.type, v.year].join(' ').toLowerCase().includes(q));
+    // Typing searches by city directly (independent of the dropdown, so
+    // it isn't gated behind whatever city the dropdown currently shows).
+    // With no query, the dropdown's selected city drives the list.
+    const filtered = q
+      ? allVehicles.filter(v => cityLabel(v).includes(q))
+      : allVehicles.filter(v => vehicleCity(v) === selectedCity);
     // While actively searching, force-open every matching section so
     // results are visible without an extra click; clearing the search
     // reverts sections to whatever the user had manually opened.
@@ -132,16 +133,13 @@ async function init() {
       countEl.textContent      = '0 vehicles';
       return;
     }
+    emptyState.style.display = 'none';
+    countEl.textContent = `${vehicles.length} vehicle${vehicles.length !== 1 ? 's' : ''}`;
 
     const groups = groupVehicles(vehicles);
-    let totalShown = 0;
 
     groups.forEach(group => {
       if (group.vehicles.length === 0) return;
-
-      const state = sectionStates[group.id] || (sectionStates[group.id] = 'ny');
-      const shown = group.vehicles.filter(v => vehicleState(v) === state);
-      totalShown += shown.length;
 
       const isOpen = forceOpen || openSections.has(group.id);
 
@@ -150,25 +148,17 @@ async function init() {
       section.id        = group.id;
 
       section.innerHTML = `
-        <div class="section-header">
-          <button type="button" class="section-toggle" aria-expanded="${isOpen}">
-            <span class="section-title-text">${group.title}</span>
-            <span class="section-count">${shown.length}</span>
-            <svg class="section-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <select class="section-state filter-select" data-section-id="${group.id}" aria-label="State for ${escHtml(group.title)}">
-            ${STATES.map(s => `<option value="${s.id}"${s.id === state ? ' selected' : ''}>${escHtml(s.label)}</option>`).join('')}
-          </select>
-        </div>
+        <button type="button" class="section-toggle" aria-expanded="${isOpen}">
+          <span class="section-title-text">${group.title}</span>
+          <span class="section-count">${group.vehicles.length}</span>
+          <svg class="section-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
         <div class="section-collapse">
-          <div class="vehicle-grid">${shown.map(cardHtml).join('')}</div>
+          <div class="vehicle-grid">${group.vehicles.map(cardHtml).join('')}</div>
         </div>`;
 
       container.appendChild(section);
     });
-
-    emptyState.style.display = 'none';
-    countEl.textContent = `${totalShown} vehicle${totalShown !== 1 ? 's' : ''}`;
 
     // Sync dots when a card's images are swiped directly (scroll doesn't bubble)
     container.querySelectorAll('.carousel-track').forEach(track => {
@@ -184,12 +174,19 @@ async function init() {
   }
 }
 
-// Legacy rows with no State value are treated as NY.
-function vehicleState(v) {
-  const s = (v.state || '').toLowerCase().trim();
-  if (!s) return 'ny';
-  const opt = STATES.find(o => o.match.some(k => s.includes(k)));
-  return opt ? opt.id : 'ny';
+// Reads either a "City" or "State" sheet column (whichever the header says),
+// and defaults rows with no value to NY/NJ.
+function vehicleCity(v) {
+  const s = (v.city || v.state || '').toLowerCase().trim();
+  if (!s) return 'nynj';
+  const opt = CITIES.find(o => o.match.some(k => s.includes(k)));
+  return opt ? opt.id : 'nynj';
+}
+
+// Lowercased label text for a vehicle's resolved city, e.g. 'nynj' -> 'ny/nj', 'miami' -> 'miami'.
+function cityLabel(v) {
+  const opt = CITIES.find(c => c.id === vehicleCity(v));
+  return opt ? opt.label.toLowerCase() : '';
 }
 
 function groupVehicles(vehicles) {

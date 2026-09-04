@@ -37,14 +37,18 @@
 
 <main>
   <div class="page-header">
-    <h1>Our <span>Fleet</span></h1>
+    <h1><span>Rides</span></h1>
     <p id="count">Loading…</p>
   </div>
 
   <div class="filters">
     <div class="search-box" id="search-box">
-      <input type="text" id="search" placeholder="Search by make, model, or type…" aria-label="Search vehicles">
+      <input type="text" id="search" placeholder="Search by city…" aria-label="Search vehicles">
     </div>
+    <select class="filter-select" id="city-picker" aria-label="Select city">
+      <option value="nynj">NY/NJ</option>
+      <option value="miami">Miami</option>
+    </select>
   </div>
 
   <div id="loading" class="loading">
