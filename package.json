@@ -1,0 +1,12 @@
+{
+  "name": "tour-rider-fleet",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static build pipeline for the Tour Rider fleet site.",
+  "scripts": {
+    "build": "node scripts/build.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

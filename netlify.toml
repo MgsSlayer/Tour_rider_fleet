@@ -1,0 +1,15 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# admin.html is published at dist/rides/admin.html (see scripts/build.js's
+# copyStaticAssets comment for why) — reachable at
+# https://tour-rider.com/rides/admin.html. It should never be indexed.
+# This path MUST match where build.js actually puts the file.
+[[headers]]
+  for = "/rides/admin.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"

@@ -34,7 +34,7 @@ function renderVehicle(v) {
     .map(u => u.trim())
     .filter(Boolean);
 
-  renderImages(document.getElementById('image-wrap'), imageUrls, title, i => openLightbox(imageUrls, title, i));
+  renderImages(document.getElementById('image-wrap'), imageUrls, title, i => openLightbox(imageUrls, title, i), v);
 
   setSpec('spec-make',     v.vehiclemake);
   setSpec('spec-model',    v.model);
@@ -55,7 +55,18 @@ function renderVehicle(v) {
   document.getElementById('vehicle-content').style.display = 'block';
 }
 
-function renderImages(wrap, urls, title, onImageClick) {
+// Mirrors altTextFor() in scripts/build.js — keep both in sync.
+function altTextFor(v, index, fallbackTitle) {
+  const capacity = (v.capacity || '').trim();
+  const type     = (v.type || '').trim().toLowerCase();
+  const subject  = (capacity && type) ? `${capacity} passenger ${type}` : fallbackTitle;
+  return index === 0
+    ? `${subject} available for rental in NYC — exterior`
+    : `${subject} interior, photo ${index + 1}`;
+}
+
+function renderImages(wrap, urls, title, onImageClick, v) {
+  wrap.innerHTML = ''; // clear any pre-rendered static markup before rebuilding
   if (urls.length === 0) {
     const img = document.createElement('img');
     img.src       = 'css/placeholder.svg';
@@ -68,7 +79,7 @@ function renderImages(wrap, urls, title, onImageClick) {
   if (urls.length === 1) {
     const img   = document.createElement('img');
     img.src     = urls[0];
-    img.alt     = title;
+    img.alt     = altTextFor(v, 0, title);
     img.onerror = () => { img.src = 'css/placeholder.svg'; };
     img.addEventListener('click', () => onImageClick(0));
     wrap.appendChild(img);
@@ -84,7 +95,7 @@ function renderImages(wrap, urls, title, onImageClick) {
     slide.className = 'carousel-slide';
     const img    = document.createElement('img');
     img.src      = url;
-    img.alt      = `${title} — photo ${i + 1}`;
+    img.alt      = altTextFor(v, i, title);
     img.loading  = i === 0 ? 'eager' : 'lazy';
     img.onerror  = () => { img.src = 'css/placeholder.svg'; };
     img.addEventListener('click', () => onImageClick(i));
