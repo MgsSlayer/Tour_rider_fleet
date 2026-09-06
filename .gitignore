@@ -1,0 +1,13 @@
+.env
+*.env
+secrets.yaml
+secrets/
+node_modules/
+__pycache__/
+*.pyc
+*.pem
+*.key
+*.crt
+kubeconfig
+.DS_Store
+dist/
