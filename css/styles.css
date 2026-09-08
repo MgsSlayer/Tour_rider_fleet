@@ -147,6 +147,13 @@ main {
 .search-box input::placeholder { color: var(--muted); }
 .search-box input:focus { outline: none; border-color: var(--accent); }
 
+.filter-label {
+  align-self: center;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .filter-select {
   padding: .7rem .9rem;
   background: var(--card);
