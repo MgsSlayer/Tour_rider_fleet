@@ -1,0 +1,109 @@
+/* Shared styles for the quote, payment and request-review pages. */
+
+.form-wrap { max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+.form-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 1.75rem;
+}
+.form-card h1 { margin: 0 0 .35rem; font-size: 1.5rem; }
+.form-lede { color: var(--muted); margin: 0 0 1.5rem; font-size: .95rem; }
+
+.chosen-vehicle {
+  display: flex; align-items: center; gap: 1rem;
+  background: var(--card-hover);
+  border: 1px solid var(--border-gold);
+  border-radius: var(--radius);
+  padding: .85rem 1rem; margin-bottom: 1.5rem;
+}
+.chosen-vehicle img { width: 84px; height: 60px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.chosen-vehicle .cv-name { font-weight: 700; }
+.chosen-vehicle .cv-meta { color: var(--muted); font-size: .85rem; }
+
+.field { margin-bottom: 1.1rem; }
+.field label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .35rem; }
+.field .req { color: var(--accent); }
+.field input, .field select, .field textarea {
+  width: 100%; box-sizing: border-box;
+  background: #0f0f0f; color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .7rem .8rem; font: inherit; font-size: .95rem;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,166,35,.15);
+}
+.field textarea { min-height: 90px; resize: vertical; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.hint { color: var(--muted); font-size: .78rem; margin-top: .3rem; }
+
+.radio-group { display: flex; flex-wrap: wrap; gap: .6rem; }
+.radio-group label {
+  flex: 1; min-width: 130px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .7rem .8rem; text-align: center; font-weight: 600; font-size: .9rem;
+  background: #0f0f0f; margin: 0;
+}
+.radio-group input { position: absolute; opacity: 0; pointer-events: none; }
+.radio-group input:checked + span { color: var(--accent); }
+.radio-group label:has(input:checked) { border-color: var(--accent); background: var(--card-hover); }
+
+.btn-submit {
+  width: 100%; background: var(--accent); color: #000;
+  font-weight: 700; font-size: 1rem; border: none;
+  border-radius: var(--radius); padding: .9rem; cursor: pointer;
+  transition: background .15s;
+}
+.btn-submit:hover:not(:disabled) { background: var(--accent-dark); }
+.btn-submit:disabled { opacity: .55; cursor: not-allowed; }
+
+.alert { border-radius: var(--radius); padding: .8rem 1rem; margin-bottom: 1.2rem; font-size: .9rem; }
+.alert-error { background: rgba(220,53,69,.12); border: 1px solid rgba(220,53,69,.4); color: #ff8a95; }
+.alert-ok { background: rgba(40,167,69,.12); border: 1px solid rgba(40,167,69,.4); color: #7ee29b; }
+.alert-info { background: rgba(245,166,35,.1); border: 1px solid var(--border-gold); color: var(--accent); }
+
+.state-msg { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+
+/* payment page */
+.amount-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+.amount-choice label {
+  cursor: pointer; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem; background: #0f0f0f; text-align: center;
+}
+.amount-choice label:has(input:checked) { border-color: var(--accent); background: var(--card-hover); }
+.amount-choice input { position: absolute; opacity: 0; pointer-events: none; }
+.amount-choice .ac-label { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.amount-choice .ac-amount { font-size: 1.4rem; font-weight: 700; margin-top: .25rem; }
+.amount-choice .ac-note { font-size: .75rem; color: var(--muted); margin-top: .3rem; }
+#card-container { margin: 1rem 0 1.5rem; padding: .5rem; background: #fff; border-radius: var(--radius); }
+
+.trip-summary { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 1.5rem; }
+.trip-summary dl { display: grid; grid-template-columns: auto 1fr; gap: .45rem 1rem; margin: 0; font-size: .9rem; }
+.trip-summary dt { color: var(--muted); }
+.trip-summary dd { margin: 0; text-align: right; }
+
+/* admin requests */
+.req-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.25rem; }
+.req-toolbar select { max-width: 200px; }
+.req-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1rem; }
+.req-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.req-head h3 { margin: 0 0 .2rem; font-size: 1.05rem; }
+.badge { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: .28rem .6rem; border-radius: 999px; }
+.badge-pending  { background: rgba(245,166,35,.15); color: var(--accent); }
+.badge-accepted { background: rgba(40,167,69,.15); color: #7ee29b; }
+.badge-declined { background: rgba(220,53,69,.15); color: #ff8a95; }
+.badge-paid     { background: rgba(90,160,255,.15); color: #8ab8ff; }
+.req-actions { display: flex; gap: .6rem; margin-top: 1rem; flex-wrap: wrap; }
+.btn-accept, .btn-decline {
+  border: none; border-radius: var(--radius); padding: .6rem 1.1rem;
+  font-weight: 700; cursor: pointer; font-size: .9rem;
+}
+.btn-accept  { background: var(--accent); color: #000; }
+.btn-decline { background: transparent; color: #ff8a95; border: 1px solid rgba(220,53,69,.4); }
+.btn-accept:disabled, .btn-decline:disabled { opacity: .5; cursor: not-allowed; }
+
+@media (max-width: 620px) {
+  .field-row, .amount-choice { grid-template-columns: 1fr; }
+  .form-card { padding: 1.25rem; }
+}

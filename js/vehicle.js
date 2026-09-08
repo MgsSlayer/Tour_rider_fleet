@@ -42,6 +42,10 @@ function renderVehicle(v) {
   setSpec('spec-capacity', v.capacity ? `${v.capacity} passengers` : '');
   setSpec('spec-luggage',  v.luggage);
 
+  // carry the chosen vehicle into the quote form
+  const quoteLink = document.getElementById('quote-link');
+  if (quoteLink) quoteLink.href = `quote.html?sn=${encodeURIComponent(v.sn)}`;
+
   document.getElementById('share-btn').addEventListener('click', () => {
     const btn = document.getElementById('share-btn');
     navigator.clipboard.writeText(window.location.href).then(() => {
