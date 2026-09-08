@@ -42,10 +42,8 @@
   </div>
 
   <div class="filters">
-    <div class="search-box" id="search-box">
-      <input type="text" id="search" placeholder="Search by city…" aria-label="Search vehicles">
-    </div>
-    <select class="filter-select" id="city-picker" aria-label="Select city">
+    <label class="filter-label" for="city-picker">Search by city</label>
+    <select class="filter-select" id="city-picker">
       <option value="nynj">NY/NJ</option>
       <option value="miami">Miami</option>
     </select>
@@ -59,7 +57,7 @@
   <div id="empty-state" class="empty-state" style="display:none">
     <div class="empty-state-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
     <h3>No vehicles found</h3>
-    <p>Try adjusting your search.</p>
+    <p>Try selecting a different city.</p>
   </div>
 
   <div id="sections-container"></div>
