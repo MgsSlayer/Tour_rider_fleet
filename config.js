@@ -4,6 +4,6 @@ const CONFIG = {
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyIOgYXXkwXv0CDS9TUyXFvPVMu17ligH7gawUexgCHJR-zsh3XszmE2SSf_HiZTrvC/exec',
   ADMIN_PASSWORD: 'Warslayer22',
   SHEET_NAME: 'Fleetsheet',
-  // base URL of the TR backend API
-  API_BASE: 'http://localhost:5001',
+  // base URL of the TR backend API — no trailing slash
+  API_BASE: 'https://tour-rider-fleet-backend.onrender.com',
 };
