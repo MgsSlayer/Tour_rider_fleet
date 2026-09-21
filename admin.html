@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — Tour Rider</title>
+  <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" href="css/logo_tour_ride-removebg-preview-1-3-300x175.png">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/forms.css">
   <!-- SheetJS for Excel parsing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -16,40 +18,86 @@
     <a class="logo" href="index.html">
       <img src="css/logo_tour_ride-removebg-preview-1-3-300x175.png" alt="Tour Rider" class="logo-img">
     </a>
-    <div class="admin-actions">
-      <nav><a href="index.html">View Listings</a></nav>
-      <button class="logout-btn" id="logout-btn" style="display:none">Sign out</button>
+    <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <nav id="main-nav">
+      <a href="index.html">View listings</a>
+      <a href="#" id="logout-link" style="display:none">Log out</a>
+    </nav>
+  </div>
+  <div class="header-contact">
+    <div class="header-contact-inner">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg> <a href="mailto:booking@tour-rider.com">booking@tour-rider.com</a></span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.06 11a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 2.98 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/></svg> <a href="tel:+19178222713">917-822-2713</a></span>
     </div>
   </div>
 </header>
 
 <main>
 
-  <!-- ── Password gate ── -->
-  <div id="auth-gate" style="display:none">
-    <div class="auth-gate">
-      <div class="auth-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-      <h2>Admin Access</h2>
-      <p>Enter the admin password to manage vehicles.</p>
-      <div class="alert alert-error" id="auth-error" style="display:none">Incorrect password. Try again.</div>
-      <form id="auth-form">
-        <div class="form-group" style="margin-bottom:1rem;text-align:left">
-          <label for="password-input">Password</label>
-          <input type="password" id="password-input" autocomplete="current-password" required>
+  <!-- ── Sign in (server JWT — replaces the old client-side password gate) ── -->
+  <div class="form-wrap" id="login-view" style="display:none">
+    <div class="form-card">
+      <h1>Admin sign in</h1>
+      <p class="form-lede">Sign in to review quote requests and manage the fleet.</p>
+      <div id="login-error" class="alert alert-error" style="display:none"></div>
+      <form id="login-form">
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" required autocomplete="username">
         </div>
-        <button class="btn btn-primary" type="submit" style="width:100%">Sign In</button>
+        <div class="field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-submit" id="login-btn">Sign in</button>
       </form>
     </div>
   </div>
 
-  <!-- ── Admin panel ── -->
-  <div id="admin-panel" style="display:none">
+  <!-- ── Admin shell ── -->
+  <div id="dash-view" style="display:none">
+    <div class="admin-layout">
 
-    <div class="page-header">
-      <h1>Manage Vehicles</h1>
-      <p>Add vehicles one at a time, or upload a spreadsheet for bulk entry.</p>
-    </div>
+      <aside class="admin-side">
+        <button type="button" class="side-tab active" data-pane="pane-requests">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          <span>Quote requests</span>
+        </button>
+        <button type="button" class="side-tab" data-pane="pane-vehicles">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm14 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM3 17V9l2-4h11l3 4h2v8"/></svg>
+          <span>Vehicles</span>
+        </button>
+      </aside>
 
+      <div class="admin-main">
+
+        <!-- Pane: quote requests -->
+        <section id="pane-requests" class="admin-pane active">
+          <div class="page-header">
+            <h1>Quote requests</h1>
+            <p id="dash-sub"></p>
+          </div>
+          <div class="req-toolbar">
+            <select id="status-filter">
+              <option value="pending">Pending</option>
+              <option value="accepted">Accepted</option>
+              <option value="declined">Declined</option>
+              <option value="paid">Paid</option>
+              <option value="">All</option>
+            </select>
+            <button class="btn-gold" id="refresh-btn" style="border:none;cursor:pointer">Refresh</button>
+          </div>
+          <div id="list"></div>
+        </section>
+
+        <!-- Pane: vehicles -->
+        <section id="pane-vehicles" class="admin-pane">
+          <div class="page-header">
+            <h1>Manage vehicles</h1>
+            <p>Add vehicles one at a time, or upload a spreadsheet for bulk entry.</p>
+          </div>
     <div class="tabs">
       <button class="tab-btn active" data-tab="tab-add">Add Vehicle</button>
       <button class="tab-btn" data-tab="tab-upload">Bulk Upload</button>
@@ -163,9 +211,29 @@
       </div>
 
     </div>
+        </section>
+
+      </div>
+    </div>
   </div>
 
 </main>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 id="modal-title"></h2>
+    <p id="modal-message"></p>
+    <div class="field" id="modal-field" hidden>
+      <label for="modal-input" id="modal-label"></label>
+      <textarea id="modal-input"></textarea>
+    </div>
+    <div class="alert alert-error" id="modal-error" hidden></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" id="modal-cancel">Cancel</button>
+      <button type="button" class="modal-confirm" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
 
 <footer>
   <p>© Tour Rider — NYC Limo &amp; Party Bus Rentals</p>
@@ -173,7 +241,8 @@
 
 <script src="config.js"></script>
 <script src="js/sheets.js"></script>
+<script src="js/requests.js"></script>
 <script src="js/admin.js"></script>
-
+<script src="js/nav.js"></script>
 </body>
 </html>

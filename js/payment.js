@@ -56,6 +56,8 @@ function renderQuote() {
     quote.stopoverAddress ? ['Stop over', quote.stopoverAddress] : null,
     ['Drop-off', quote.dropoffAddress],
     ['Passengers', quote.passengers],
+    (quote.lineItems || []).length ? ['Base fare', money(quote.baseFare)] : null,
+    ...(quote.lineItems || []).map(l => [l.label, money(l.amount)]),
     ['Total quoted', money(quote.quotedAmount)],
   ].filter(Boolean);
 

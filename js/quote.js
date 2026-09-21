@@ -26,7 +26,62 @@ async function init() {
     showAlert(`Could not load vehicle details: ${escHtml(err.message)}`);
   }
 
+  form.querySelectorAll('input[name="tripType"]')
+    .forEach(el => el.addEventListener('change', syncStopover));
+  syncStopover();
+
   form.addEventListener('submit', onSubmit);
+
+  // address suggestions are a nicety — the form works fine without them
+  loadGoogleMaps().then(loaded => { if (loaded) initAddressAutocomplete(); });
+}
+
+const ADDRESS_FIELDS = ['pickupAddress', 'stopoverAddress', 'dropoffAddress'];
+
+function loadGoogleMaps() {
+  return new Promise(resolve => {
+    if (!CONFIG.MAPS_API_KEY) return resolve(false);
+    if (window.google?.maps?.places) return resolve(true);
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.MAPS_API_KEY}&libraries=places`;
+    s.async = true;
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
+function initAddressAutocomplete() {
+  ADDRESS_FIELDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    const ac = new google.maps.places.Autocomplete(el, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['formatted_address'],
+    });
+
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (place?.formatted_address) el.value = place.formatted_address;
+    });
+
+    // Enter picks a suggestion — it must not submit the form as well
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && document.querySelector('.pac-container:not([style*="display: none"])')) {
+        e.preventDefault();
+      }
+    });
+  });
+}
+
+// a stop-over only makes sense on a round trip
+function syncStopover() {
+  const isRoundTrip = document.querySelector('input[name="tripType"]:checked')?.value === 'roundtrip';
+  document.getElementById('stopover-field').hidden = !isRoundTrip;
+  // clear it so a hidden value can't be submitted
+  if (!isRoundTrip) document.getElementById('stopoverAddress').value = '';
 }
 
 function renderChosen(v) {
@@ -37,7 +92,7 @@ function renderChosen(v) {
   document.getElementById('vehicle-box').innerHTML = `
     <div class="chosen-vehicle">
       ${img ? `<img src="${escHtml(img)}" alt="${escHtml(title)}">` : ''}
-      <div>
+      <div class="cv-body">
         <div class="cv-name">${escHtml(title)}</div>
         <div class="cv-meta">${escHtml(meta)}</div>
       </div>

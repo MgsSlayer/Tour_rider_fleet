@@ -1,37 +1,14 @@
-// ── Auth ────────────────────────────────────────────────────────────────────
+// ── Sidebar panes ────────────────────────────────────────────────────────────
+// Auth and the requests pane live in requests.js; this file owns the vehicle pane.
 
-function checkAuth() {
-  if (sessionStorage.getItem('adminAuth') === CONFIG.ADMIN_PASSWORD) {
-    showPanel();
-  } else {
-    document.getElementById('auth-gate').style.display   = 'block';
-    document.getElementById('admin-panel').style.display = 'none';
-  }
-}
-
-document.getElementById('auth-form').addEventListener('submit', e => {
-  e.preventDefault();
-  const pw = document.getElementById('password-input').value;
-  if (pw === CONFIG.ADMIN_PASSWORD) {
-    sessionStorage.setItem('adminAuth', pw);
-    showPanel();
-  } else {
-    document.getElementById('auth-error').style.display = 'flex';
-    document.getElementById('password-input').value = '';
-    document.getElementById('password-input').focus();
-  }
+document.querySelectorAll('.side-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.side-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.admin-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.pane).classList.add('active');
+  });
 });
-
-document.getElementById('logout-btn').addEventListener('click', () => {
-  sessionStorage.removeItem('adminAuth');
-  location.reload();
-});
-
-function showPanel() {
-  document.getElementById('auth-gate').style.display   = 'none';
-  document.getElementById('admin-panel').style.display = 'block';
-  document.getElementById('logout-btn').style.display  = 'block';
-}
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 
@@ -252,5 +229,3 @@ function showAlert(el, type, message) {
   el.style.display = 'flex';
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
-
-document.addEventListener('DOMContentLoaded', checkAuth);

@@ -29,7 +29,6 @@ async function init() {
   const loading    = document.getElementById('loading');
   const emptyState = document.getElementById('empty-state');
   const container  = document.getElementById('sections-container');
-  const searchInput = document.getElementById('search');
   const countEl    = document.getElementById('count');
 
   const openSections = new Set();  // section ids the user has manually expanded
@@ -51,14 +50,6 @@ async function init() {
     if (!revealSupported) { cards.forEach(c => c.classList.add('in-view')); return; }
     cards.forEach(c => revealObserver.observe(c));
   }
-
-  searchInput.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      searchInput.value = '';
-      searchInput.blur();
-      applyFilters();
-    }
-  });
 
   cityPicker.addEventListener('change', () => {
     selectedCity = cityPicker.value;
@@ -107,21 +98,10 @@ async function init() {
     if (open) openSections.add(section.id); else openSections.delete(section.id);
   });
 
-  searchInput.addEventListener('input', applyFilters);
   applyFilters();
 
   function applyFilters() {
-    const q = searchInput.value.toLowerCase().trim();
-    // Typing searches by city directly (independent of the dropdown, so
-    // it isn't gated behind whatever city the dropdown currently shows).
-    // With no query, the dropdown's selected city drives the list.
-    const filtered = q
-      ? allVehicles.filter(v => cityLabel(v).includes(q))
-      : allVehicles.filter(v => vehicleCity(v) === selectedCity);
-    // While actively searching, force-open every matching section so
-    // results are visible without an extra click; clearing the search
-    // reverts sections to whatever the user had manually opened.
-    renderSections(filtered, !!q);
+    renderSections(allVehicles.filter(v => vehicleCity(v) === selectedCity), false);
   }
 
   function renderSections(vehicles, forceOpen) {

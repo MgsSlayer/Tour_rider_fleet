@@ -96,6 +96,8 @@ nav a.btn-gold       { margin-left: .5rem; }
   border-bottom: 1px solid var(--border);
 }
 .header-contact svg { flex-shrink: 0; }
+.header-contact a { color: inherit; text-decoration: none; }
+.header-contact a:hover { color: var(--accent); }
 
 .admin-actions { display: flex; align-items: center; gap: .75rem; }
 .logout-btn {
@@ -146,6 +148,13 @@ main {
 }
 .search-box input::placeholder { color: var(--muted); }
 .search-box input:focus { outline: none; border-color: var(--accent); }
+
+.filter-label {
+  align-self: center;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
 
 .filter-select {
   padding: .7rem .9rem;
