@@ -136,13 +136,43 @@ async function onLogin(e) {
   }
 }
 
+// sheet rates, keyed by S/N — fetched once and reused for suggestions
+let vehicleRates = null;
+const METHOD_LABELS = {
+  card: 'Card', apple_pay: 'Apple Pay', google_pay: 'Google Pay', cash_app: 'Cash App Pay',
+  paypal: 'PayPal', venmo: 'Venmo', zelle: 'Zelle', cash: 'Cash',
+};
+
+const cardCoords = {};
+const cardAddresses = {};
+const cardRoutes = {};   // encoded polylines from the price suggestion
+async function loadVehicleRates() {
+  if (vehicleRates) return vehicleRates;
+  vehicleRates = {};
+  try {
+    (await fetchVehicles()).forEach(v => {
+      vehicleRates[v.sn] = {
+        retail: parseFloat(String(v.retprice).replace(/[^0-9.]/g, '')) || '',
+        affiliate: parseFloat(String(v.affprice).replace(/[^0-9.]/g, '')) || '',
+        pics: (v.pics || '').split('|').map(u => u.trim()).filter(Boolean),
+      };
+    });
+  } catch (e) {
+    console.warn('could not load fleet rates:', e.message);
+  }
+  return vehicleRates;
+}
+
 async function loadRequests() {
   const list = document.getElementById('list');
   list.innerHTML = '<div class="state-msg">Loading…</div>';
   const status = document.getElementById('status-filter').value;
 
   try {
-    const { quotes } = await api(`/api/quotes${status ? `?status=${status}` : ''}`);
+    const [{ quotes }] = await Promise.all([
+      api(`/api/quotes${status ? `?status=${status}` : ''}`),
+      loadVehicleRates(),
+    ]);
     document.getElementById('dash-sub').textContent =
       `${quotes.length} ${status || 'total'} request${quotes.length === 1 ? '' : 's'}`;
 
@@ -150,6 +180,12 @@ async function loadRequests() {
       list.innerHTML = '<div class="state-msg">Nothing here right now.</div>';
       return;
     }
+    quotes.forEach((q) => {
+      cardCoords[q._id] = q.coords || {};
+      cardAddresses[q._id] = {
+        pickup: q.pickupAddress, stopover: q.stopoverAddress, dropoff: q.dropoffAddress,
+      };
+    });
     list.innerHTML = quotes.map(renderCard).join('');
     wireCards();
   } catch (err) {
@@ -160,16 +196,41 @@ async function loadRequests() {
 function renderCard(q) {
   const created = new Date(q.createdAt).toLocaleString();
   const isPending = q.status === 'pending';
+  const rates = (vehicleRates || {})[q.vehicle?.sn] || { retail: '', affiliate: '', pics: [] };
+  const hasTrip = !!(q.pickupAddress && q.dropoffAddress);
 
   return `
-  <div class="req-card" data-id="${q._id}" data-email="${esc(q.customer.email)}">
+  <div class="req-card" data-id="${q._id}" data-email="${esc(q.customer.email)}"
+       data-retail="${esc(rates.retail)}" data-affiliate="${esc(rates.affiliate)}">
     <div class="req-head">
-      <div>
-        <h3>${esc(q.customer.name)} — ${esc(q.vehicle?.name || q.vehicle?.type || 'Vehicle')}</h3>
-        <div class="cv-meta">${esc(q.customer.email)}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
+      <div class="req-who">
+        <img class="req-vehicle-pic${(rates.pics || []).length ? ' clickable' : ''}"
+             src="${esc((rates.pics || [])[0] || 'css/placeholder.svg')}"
+             alt="${esc(q.vehicle?.name || 'Vehicle')}" loading="lazy"
+             title="${(rates.pics || []).length > 1 ? `View all ${rates.pics.length} photos` : 'View photo'}"
+             data-sn="${esc(q.vehicle?.sn || '')}"
+             onerror="this.src='css/placeholder.svg'">
+        <div>
+          <h3>${esc(q.customer.name)}</h3>
+          <div class="req-vehicle-name">${esc(q.vehicle?.name || q.vehicle?.type || 'Vehicle')}${
+            q.vehicle?.sn ? ` · S/N ${esc(q.vehicle.sn)}` : ''}</div>
+          <div class="cv-meta">${esc(q.customer.email)}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
+        </div>
       </div>
       <span class="badge badge-${q.status}">${q.status}</span>
     </div>
+
+    ${hasTrip ? `
+    <div class="req-map-wrap">
+      <button type="button" class="req-map-btn">View trip on map</button>
+      <div class="trip-map" hidden></div>
+      <div class="map-key" hidden>
+        <span><i class="pin pin-a"></i> Pick-up</span>
+        ${q.coords?.stopover ? '<span><i class="pin pin-b"></i> Stop over</span>' : ''}
+        <span><i class="pin pin-c"></i> Drop-off</span>
+        <span><i class="pin pin-route"></i> Route</span>
+      </div>
+    </div>` : ''}
 
     <div class="trip-summary" style="margin:1rem 0 0">
       <dl>
@@ -185,10 +246,18 @@ function renderCard(q) {
             + q.lineItems.map(l => `<div><span>${esc(l.label)}</span><span>${money(l.amount)}</span></div>`).join('')
             + `<div class="total"><span>Total</span><span>${money(q.quotedAmount)}</span></div></div>`
           : money(q.quotedAmount)}</dd>` : ''}
+        ${q.paymentMethod ? `<dt>Method</dt><dd>${esc(METHOD_LABELS[q.paymentMethod] || q.paymentMethod)}${
+          q.processingFee > 0 ? ` · ${money(q.processingFee)} fee` : ' · no fee'}</dd>` : ''}
         ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.remainingBalance > 0 ? ` (${money(q.remainingBalance)} due on pickup day)` : ''}</dd>` : ''}
         ${q.declineReason ? `<dt>Declined</dt><dd>${esc(q.declineReason)}</dd>` : ''}
       </dl>
     </div>
+
+    ${q.status === 'awaiting_payment' || (q.offlineChosenAt && q.status === 'paid' && q.remainingBalance > 0 && !q.remainingBalancePaid) ? `
+    <div class="req-actions">
+      <button class="btn-confirm" data-confirm="${q._id}">Confirm ${esc(METHOD_LABELS[q.paymentMethod] || 'offline')} payment received</button>
+    </div>
+    <div class="card-msg"></div>` : ''}
 
     ${q.status === 'paid' && q.paymentOption === 'deposit'
         && q.remainingBalance > 0 && !q.remainingBalancePaid ? `
@@ -200,6 +269,18 @@ function renderCard(q) {
     ${isPending ? `
     <div class="req-actions">
       <div class="breakdown">
+        <div class="bd-suggest">
+          <span class="bd-suggest-note">Working out a suggested price…</span>
+        </div>
+        <div class="bd-basepick" hidden>
+          <label>Departing from
+            <select class="bd-base-select"></select>
+          </label>
+          <button type="button" class="bd-basepick-go">Recalculate</button>
+        </div>
+        <div class="bd-reposition"></div>
+        <div class="bd-candidates"></div>
+
         <div class="bd-row bd-base">
           <span class="bd-label">Base fare</span>
           <div class="amount-input">
@@ -285,6 +366,27 @@ function renderLines(card, state) {
     </div>`;
   }).join('');
 
+  refreshTotals(card, state);
+}
+
+/**
+ * Updates the computed figures without touching the DOM structure.
+ * Rebuilding rows on every keystroke destroys the input being typed into, which
+ * drops focus and closes the keyboard on mobile.
+ */
+function refreshTotals(card, state) {
+  const { base, priced, total } = priceQuote(state.base, state.lines);
+
+  priced.forEach(l => {
+    const row = card.querySelector(`.bd-line[data-id="${l.id}"]`);
+    if (row) row.querySelector('.bd-amount').textContent = money(l.amount);
+    // later lines may use this one as a percentage basis — keep those labels honest
+    card.querySelectorAll(`.bd-basis input[value="${l.id}"]`).forEach(cb => {
+      const text = cb.parentElement.lastChild;
+      if (text && text.nodeType === 3) text.textContent = ` ${l.label || 'Untitled'}`;
+    });
+  });
+
   card.querySelector('.bd-total-value').textContent = money(total);
   card.querySelector('.bd-total').classList.toggle('empty', !base);
   state.total = total;
@@ -294,10 +396,16 @@ function wireBreakdown(card) {
   const state = { base: '', lines: [], total: 0, seq: 0 };
   const rerender = () => renderLines(card, state);
 
-  card.querySelector('.quote-input').addEventListener('input', e => {
+  const baseInput = card.querySelector('.quote-input');
+
+  baseInput.addEventListener('input', e => {
     state.base = e.target.value;
-    rerender();
+    state.touched = true;          // a suggestion must never overwrite this
+    refreshTotals(card, state);
   });
+
+  // the $ and USD labels sit over the field — make the whole box focus it
+  card.querySelector('.amount-input').addEventListener('click', () => baseInput.focus());
 
   card.querySelectorAll('.bd-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -322,8 +430,10 @@ function wireBreakdown(card) {
   lines.addEventListener('input', e => {
     const line = find(e.target);
     if (!line) return;
-    if (e.target.classList.contains('bd-name')) { line.label = e.target.value; rerender(); }
-    if (e.target.classList.contains('bd-value')) { line.value = e.target.value; rerender(); }
+    if (e.target.classList.contains('bd-name')) line.label = e.target.value;
+    else if (e.target.classList.contains('bd-value')) line.value = e.target.value;
+    else return;
+    refreshTotals(card, state);   // never rerender here — it would steal focus
   });
 
   lines.addEventListener('change', e => {
@@ -349,6 +459,7 @@ function wireBreakdown(card) {
     rerender();
   });
 
+  wireSuggest(card, state, rerender);
   rerender();
   return state;
 }
@@ -370,7 +481,7 @@ function wireCharge(card, btn) {
     btn.textContent = 'Charging…';
     try {
       const res = await api(`/api/quotes/${id}/charge-balance`, { method: 'PATCH' });
-      msg.innerHTML = `<div class="alert alert-ok" style="margin:.9rem 0 0">Charged ${money(res.amount)} — the customer has been emailed a receipt.</div>`;
+      msg.innerHTML = `<div class="alert alert-ok" style="margin:.9rem 0 0">Charged ${money(res.amount)}. The customer has been emailed a receipt.</div>`;
       setTimeout(loadRequests, 1400);
     } catch (err) {
       msg.innerHTML = `<div class="alert alert-error" style="margin:.9rem 0 0">${esc(err.message)}</div>`;
@@ -380,10 +491,242 @@ function wireCharge(card, btn) {
   });
 }
 
+// Distance-based suggestion. Purely advisory — applying one just fills the
+// editor, and the server still re-prices whatever is finally submitted.
+/**
+ * Prices the trip automatically when the card opens. The result is only ever a
+ * suggestion: it pre-fills the editor, is labelled as such, and every field
+ * stays editable. The server caches per quote, so this costs one route lookup
+ * per request rather than one per page view.
+ */
+function wireSuggest(card, state, rerender) {
+  const note = card.querySelector('.bd-suggest-note');
+  const wrap = card.querySelector('.bd-candidates');
+  const pick = card.querySelector('.bd-basepick');
+  const select = card.querySelector('.bd-base-select');
+  const go = card.querySelector('.bd-basepick-go');
+  const repo = card.querySelector('.bd-reposition');
+  if (!note) return;
+
+  let bases = [];
+
+  const applyCandidate = (c) => {
+    state.touched = false;         // an explicit pick replaces whatever was there
+    state.base = c.baseFare;
+    state.lines = c.lineItems.map(l => ({
+      id: `l${++state.seq}`, label: l.label, mode: l.mode,
+      value: l.value, basis: l.basis || ['base'],
+    }));
+    card.querySelector('.quote-input').value = c.baseFare;
+    rerender();
+  };
+
+  const render = (res, applyFirst) => {
+    const r = res.route;
+    const rep = res.repositioning || {};
+    // the suggestion's Routes call already returned the road path, so the map
+    // can draw it without spending a Directions request
+    if (r.polyline) cardRoutes[card.dataset.id] = r.polyline;
+
+    // the route summary is noise once the figures are on screen; the note area
+    // stays for the loading and failure states only
+    note.textContent = '';
+    note.classList.remove('err');
+    repo.innerHTML = rep.note
+      ? `<div class="alert alert-${rep.charged ? 'info' : 'ok'}" style="margin:0 0 .8rem">${esc(rep.note)}</div>`
+      : '';
+
+    wrap.innerHTML = res.candidates.map((c, i) => {
+      const total = priceQuote(c.baseFare, c.lineItems.map((l, j) => ({
+        id: `s${i}_${j}`, label: l.label, mode: l.mode, value: l.value, basis: l.basis || ['base'],
+      }))).total;
+      const p = c.baseFareParts || {};
+      // reads as the sum it is: inputs first, result last
+      const madeOf = p.repositioning > 0
+        ? `${p.hours} h × ${money(p.hourlyRate)} + ${money(p.repositioning)} repositioning = ${money(c.baseFare)}`
+        : `${p.hours} h × ${money(p.hourlyRate)} = ${money(c.baseFare)}`;
+      return `
+      <button type="button" class="bd-candidate${i === 0 && applyFirst ? ' chosen' : ''}" data-i="${i}">
+        <span class="bc-label">${esc(c.label)} · ${money(c.hourlyRate)}/h</span>
+        <span class="bc-total">${money(total)}</span>
+        <span class="bc-parts">${esc(madeOf)}</span>
+        <span class="bc-apply">Use this</span>
+      </button>`;
+    }).join('');
+
+    wrap.querySelectorAll('.bd-candidate').forEach(el => {
+      el.addEventListener('click', () => {
+        applyCandidate(res.candidates[Number(el.dataset.i)]);
+        wrap.querySelectorAll('.bd-candidate').forEach(b => b.classList.remove('chosen'));
+        el.classList.add('chosen');
+      });
+    });
+
+    // start from the retail suggestion, but never clobber something already typed
+    if (applyFirst && res.candidates.length && !state.touched) {
+      applyCandidate(res.candidates[0]);
+    } else if (state.touched) {
+      note.textContent = 'Your edits were kept.';
+    }
+  };
+
+  // The field stays locked only while a suggestion is in flight, so an arriving
+  // result can't overwrite something half-typed. It unlocks either way.
+  const baseInput = card.querySelector('.quote-input');
+  const showNote = () => card.querySelector('.bd-suggest')
+    .classList.toggle('empty', !note.textContent.trim());
+
+  const setBaseLocked = (locked) => {
+    baseInput.disabled = locked;
+    baseInput.placeholder = locked ? 'Pricing…' : '0.00';
+    card.querySelector('.amount-input').classList.toggle('locked', locked);
+  };
+
+  const load = async (baseId) => {
+    note.textContent = baseId ? 'Recalculating…' : 'Working out a suggested price…';
+    note.classList.remove('err');
+    showNote();   // otherwise a recalculation stays hidden behind the empty class
+    if (go) go.disabled = true;
+    setBaseLocked(true);
+
+    try {
+      const res = await api(`/api/quotes/${card.dataset.id}/suggest`, {
+        method: 'POST',
+        body: JSON.stringify({
+          baseId,
+          retailRate: card.dataset.retail || undefined,
+          affiliateRate: card.dataset.affiliate || undefined,
+        }),
+      });
+      render(res, true);
+    } catch (err) {
+      note.textContent = `No suggestion available: ${err.message} Enter a price manually below.`;
+      note.classList.add('err');
+      showNote();
+      wrap.innerHTML = '';
+    } finally {
+      if (go) go.disabled = false;
+      setBaseLocked(false);   // editable once we have an answer, success or not
+      showNote();
+    }
+  };
+
+  // let the admin change which yard the trip departs from, then re-price
+  (async () => {
+    try {
+      const res = await api(`/api/quotes/${card.dataset.id}/bases-for`);
+      bases = res.bases;
+      if (bases.length > 1) {
+        select.innerHTML = bases.map(b =>
+          `<option value="${esc(b.id)}" ${b.id === res.recommendedId ? 'selected' : ''}>${esc(b.label)}</option>`
+        ).join('');
+        pick.hidden = false;
+      }
+    } catch { /* the picker is optional; the suggestion still loads */ }
+  })();
+
+  if (go) go.addEventListener('click', () => load(select.value));
+
+  load(null);
+}
+
+// Requests taken before addresses carried coordinates still need pins, so those
+// are geocoded once, on demand, and kept for the rest of the session.
+async function resolveCoords(id) {
+  const have = cardCoords[id] || {};
+  const addrs = cardAddresses[id] || {};
+  const missing = ['pickup', 'stopover', 'dropoff']
+    .filter(k => addrs[k] && !Number.isFinite(have[k]?.lat));
+  if (!missing.length) return have;
+
+  const geocoder = new google.maps.Geocoder();
+  const found = await Promise.all(missing.map(k => new Promise((resolve) => {
+    geocoder.geocode({ address: addrs[k] }, (res, status) => {
+      const loc = status === 'OK' ? res?.[0]?.geometry?.location : null;
+      resolve([k, loc ? { lat: loc.lat(), lng: loc.lng() } : null]);
+    });
+  })));
+
+  const next = { ...have };
+  found.forEach(([k, point]) => { if (point) next[k] = point; });
+  cardCoords[id] = next;
+  return next;
+}
+
+// Maps are billed per load, so one is only created when the admin asks to see it.
+function wireTripMap(card, btn) {
+  const el = card.querySelector('.trip-map');
+  const key = card.querySelector('.map-key');
+  const store = {};
+  let shown = false;
+
+  btn.addEventListener('click', async () => {
+    if (shown) {                       // toggle it away again
+      el.hidden = true; key.hidden = true; shown = false;
+      btn.textContent = 'View trip on map';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Loading map…';
+    try {
+      if (!(await loadGoogleMaps())) throw new Error('Maps unavailable');
+      const q = await resolveCoords(card.dataset.id);
+      if (!Object.values(q).some(p => Number.isFinite(p?.lat))) {
+        throw new Error('Addresses not mappable');
+      }
+      renderTripMap(el, q, store, cardRoutes[card.dataset.id] || null);
+      key.hidden = false;
+      shown = true;
+      btn.textContent = 'Hide map';
+    } catch (err) {
+      btn.textContent = err.message === 'Addresses not mappable' ? err.message : 'Map unavailable';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// money that arrived by Zelle or cash is only known to the admin
+function wireConfirmOffline(btn, id, msg) {
+  btn.addEventListener('click', async () => {
+    if (!window.confirm('Confirm that this payment has actually arrived?')) return;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'Confirming…';
+    try {
+      const res = await api(`/api/quotes/${id}/confirm-offline`, { method: 'PATCH' });
+      if (msg) {
+        msg.className = 'card-msg ok';
+        msg.textContent = `Marked paid: ${money(res.amountPaid)}`;
+      }
+      loadRequests();
+    } catch (err) {
+      if (msg) { msg.className = 'card-msg err'; msg.textContent = err.message; }
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+}
+
 function wireCards() {
   document.querySelectorAll('.req-card').forEach((card) => {
     const id = card.dataset.id;
     const msg = card.querySelector('.card-msg');
+    const mapBtn = card.querySelector('.req-map-btn');
+    if (mapBtn) wireTripMap(card, mapBtn);
+
+    const confirmBtn = card.querySelector('.btn-confirm');
+    if (confirmBtn) wireConfirmOffline(confirmBtn, id, msg);
+
+    const pic = card.querySelector('.req-vehicle-pic.clickable');
+    if (pic) {
+      pic.addEventListener('click', () => {
+        const all = (vehicleRates || {})[pic.dataset.sn]?.pics || [];
+        if (all.length) openLightbox(all, card.querySelector('.req-vehicle-name')?.textContent || '', 0);
+      });
+    }
+
     const charge = card.querySelector('.btn-charge');
     if (charge) wireCharge(card, charge);
 
@@ -436,7 +779,7 @@ function wireCards() {
             })),
           }),
         });
-        showMsg('Quote sent — the customer has been emailed a payment link.', 'ok');
+        showMsg('Quote sent. The customer has been emailed a payment link.', 'ok');
         setTimeout(loadRequests, 1200);
       } catch (err) {
         showMsg(err.message);
@@ -455,7 +798,7 @@ function wireCards() {
           label: 'Reason',
           placeholder: 'e.g. That vehicle is already booked for those dates',
           required: true,
-          requiredMessage: 'A reason is required — the customer will see it.',
+          requiredMessage: 'A reason is required. The customer will see it.',
         },
       });
       if (reason === null) return;
@@ -467,7 +810,7 @@ function wireCards() {
           method: 'PATCH',
           body: JSON.stringify({ reason: reason.trim() }),
         });
-        showMsg('Request declined — the customer has been emailed.', 'ok');
+        showMsg('Request declined. The customer has been emailed.', 'ok');
         setTimeout(loadRequests, 1200);
       } catch (err) {
         showMsg(err.message);
@@ -479,6 +822,9 @@ function wireCards() {
 }
 
 function init() {
+  // shared photo viewer, used by the vehicle thumbnails on each card
+  if (typeof initLightbox === 'function' && document.getElementById('lightbox')) initLightbox();
+
   document.getElementById('login-form').addEventListener('submit', onLogin);
   document.getElementById('status-filter').addEventListener('change', loadRequests);
   document.getElementById('refresh-btn').addEventListener('click', loadRequests);

@@ -30,50 +30,63 @@ async function init() {
     .forEach(el => el.addEventListener('change', syncStopover));
   syncStopover();
 
+  ['pickupTime', 'finalDropoffTime'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', syncMinTrip);
+    document.getElementById(id).addEventListener('change', syncMinTrip);
+  });
+  syncMinTrip();
+
   form.addEventListener('submit', onSubmit);
 
   // address suggestions are a nicety — the form works fine without them
-  loadGoogleMaps().then(loaded => { if (loaded) initAddressAutocomplete(); });
+  initAddressAutocomplete(ADDRESS_FIELDS, onAddressPicked);
+}
+
+// mirrors the server rule; the server is what actually enforces it
+const MIN_TRIP_HOURS = 3;
+
+// a drop-off at or before pick-up means the trip runs past midnight
+function tripMinutes(pickup, dropoff) {
+  const mins = (t) => {
+    const [h, m] = String(t).split(':').map(Number);
+    return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+  };
+  const a = mins(pickup);
+  const b = mins(dropoff);
+  if (a === null || b === null) return null;
+  return b > a ? b - a : b - a + 24 * 60;
+}
+
+// the rule is only worth stating while it is being broken
+function syncMinTrip() {
+  const pickup = document.getElementById('pickupTime').value;
+  const dropoff = document.getElementById('finalDropoffTime').value;
+  const booked = pickup && dropoff ? tripMinutes(pickup, dropoff) : null;
+  document.getElementById('min-trip-warning').hidden = booked === null || booked >= MIN_TRIP_HOURS * 60;
 }
 
 const ADDRESS_FIELDS = ['pickupAddress', 'stopoverAddress', 'dropoffAddress'];
 
-function loadGoogleMaps() {
-  return new Promise(resolve => {
-    if (!CONFIG.MAPS_API_KEY) return resolve(false);
-    if (window.google?.maps?.places) return resolve(true);
-    const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.MAPS_API_KEY}&libraries=places`;
-    s.async = true;
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.head.appendChild(s);
-  });
+// coordinates come free with the autocomplete pick; they are sent with the quote
+// so the admin map never has to geocode the addresses again
+const tripCoords = { pickup: null, stopover: null, dropoff: null };
+const tripMapStore = {};
+const COORD_KEY = { pickupAddress: 'pickup', stopoverAddress: 'stopover', dropoffAddress: 'dropoff' };
+
+function onAddressPicked(fieldId, coords) {
+  const key = COORD_KEY[fieldId];
+  if (!key) return;
+  tripCoords[key] = coords;
+  drawTripMap();
 }
 
-function initAddressAutocomplete() {
-  ADDRESS_FIELDS.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-
-    const ac = new google.maps.places.Autocomplete(el, {
-      types: ['address'],
-      componentRestrictions: { country: 'us' },
-      fields: ['formatted_address'],
-    });
-
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (place?.formatted_address) el.value = place.formatted_address;
-    });
-
-    // Enter picks a suggestion — it must not submit the form as well
-    el.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && document.querySelector('.pac-container:not([style*="display: none"])')) {
-        e.preventDefault();
-      }
-    });
-  });
+function drawTripMap() {
+  const field = document.getElementById('trip-map-field');
+  const el = document.getElementById('trip-map');
+  if (!field || !el) return;
+  const any = Object.values(tripCoords).some(Boolean);
+  field.hidden = !any;
+  if (any) renderTripMap(el, tripCoords, tripMapStore);
 }
 
 // a stop-over only makes sense on a round trip
@@ -81,7 +94,10 @@ function syncStopover() {
   const isRoundTrip = document.querySelector('input[name="tripType"]:checked')?.value === 'roundtrip';
   document.getElementById('stopover-field').hidden = !isRoundTrip;
   // clear it so a hidden value can't be submitted
-  if (!isRoundTrip) document.getElementById('stopoverAddress').value = '';
+  if (!isRoundTrip) {
+    document.getElementById('stopoverAddress').value = '';
+    if (typeof tripCoords !== 'undefined') { tripCoords.stopover = null; drawTripMap(); }
+  }
 }
 
 function renderChosen(v) {
@@ -146,6 +162,11 @@ async function onSubmit(e) {
     return showAlert(`This vehicle seats up to ${cap} passengers.`);
   }
 
+  const booked = tripMinutes(val('pickupTime'), val('finalDropoffTime'));
+  if (booked === null || booked < MIN_TRIP_HOURS * 60) {
+    return showAlert(`Trips run for a minimum of ${MIN_TRIP_HOURS} hours. Please adjust your pick-up or drop-off time.`);
+  }
+
   const payload = {
     vehicleSn: chosenVehicle.sn,
     vehicleName: vehicleTitle(chosenVehicle),
@@ -163,6 +184,9 @@ async function onSubmit(e) {
     phone: val('phone'),
     email: val('email'),
     message: val('message'),
+    pickupCoords: tripCoords.pickup,
+    stopoverCoords: tripCoords.stopover,
+    dropoffCoords: tripCoords.dropoff,
   };
 
   btn.disabled = true;

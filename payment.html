@@ -61,13 +61,61 @@
         We'll securely save your card and charge the remaining balance on the morning of your trip.
       </div>
 
-      <div id="card-container"></div>
+      <label class="terms-row" for="accept-terms">
+        <input type="checkbox" id="accept-terms">
+        <span>I have read and accept the
+          <a href="https://tour-rider.com/terms_conditions/" target="_blank" rel="noopener">
+            Terms and Conditions</a>.</span>
+      </label>
+
       <div id="pay-error" class="alert alert-error" style="display:none"></div>
-      <button id="pay-button" class="btn-submit">Pay <span id="pay-amount"></span></button>
+
+      <div id="pay-methods-wrap" class="gated">
+        <div class="pay-methods" id="method-tabs" role="tablist" aria-label="Payment method"></div>
+
+        <div class="fee-summary" id="fee-summary" hidden></div>
+
+        <div class="pay-panel" data-method="card">
+          <div id="card-container"></div>
+          <label class="savecard-row" for="save-card" id="save-card-wrap" hidden>
+            <input type="checkbox" id="save-card">
+            <span>Save my card so the remaining balance can be charged automatically on the morning of my trip.</span>
+          </label>
+          <button id="pay-button" class="btn-submit">Pay <span id="pay-amount"></span></button>
+        </div>
+        <div class="pay-panel" data-method="apple_pay" hidden>
+          <div id="apple-pay-button" class="apple-pay-button" role="button" tabindex="0"
+               aria-label="Pay with Apple Pay"></div>
+        </div>
+        <div class="pay-panel" data-method="google_pay" hidden>
+          <div id="google-pay-button"></div>
+        </div>
+        <div class="pay-panel" data-method="cash_app" hidden>
+          <div id="cash-app-pay"></div>
+        </div>
+        <div class="pay-panel" data-method="paypal" hidden>
+          <div id="paypal-buttons"></div>
+        </div>
+        <div class="pay-panel" data-method="venmo" hidden>
+          <div id="venmo-buttons"></div>
+        </div>
+        <div class="pay-panel" data-method="zelle" hidden>
+          <p class="offline-note">No processing fee. We'll email you the payment details and hold your booking until it arrives.</p>
+          <button type="button" id="zelle-choose" class="btn-submit">Pay by Zelle</button>
+        </div>
+        <div class="pay-panel" data-method="cash" hidden>
+          <p class="offline-note">No processing fee. We'll email you the details and hold your booking until we confirm payment.</p>
+          <button type="button" id="cash-choose" class="btn-submit">Pay by cash</button>
+        </div>
+
+        <div id="method-busy" class="state-msg" hidden>Loading…</div>
+      </div>
+
+      <p class="terms-gate-hint" id="terms-gate-hint">Accept the terms above to choose a payment method.</p>
     </div>
 
     <div id="done-state" style="display:none">
-      <div class="alert alert-ok"><strong>Payment received.</strong> Your ride is confirmed.</div>
+      <div class="alert alert-ok"><strong id="done-title">Payment received.</strong> Your ride is confirmed.</div>
       <p class="form-lede" id="done-note"></p>
       <a href="index.html" class="btn-gold">Back to the fleet</a>
     </div>

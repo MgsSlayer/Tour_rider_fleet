@@ -45,11 +45,11 @@
       <form id="login-form">
         <div class="field">
           <label for="login-email">Email</label>
-          <input type="email" id="login-email" required autocomplete="username">
+          <input type="email" id="login-email" maxlength="254" required autocomplete="username">
         </div>
         <div class="field">
           <label for="login-password">Password</label>
-          <input type="password" id="login-password" required autocomplete="current-password">
+          <input type="password" id="login-password" maxlength="200" required autocomplete="current-password">
         </div>
         <button type="submit" class="btn-submit" id="login-btn">Sign in</button>
       </form>
@@ -64,6 +64,10 @@
         <button type="button" class="side-tab active" data-pane="pane-requests">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
           <span>Quote requests</span>
+        </button>
+        <button type="button" class="side-tab" data-pane="pane-bases">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <span>Bases</span>
         </button>
         <button type="button" class="side-tab" data-pane="pane-vehicles">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm14 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM3 17V9l2-4h11l3 4h2v8"/></svg>
@@ -83,6 +87,7 @@
             <select id="status-filter">
               <option value="pending">Pending</option>
               <option value="accepted">Accepted</option>
+              <option value="awaiting_payment">Awaiting payment</option>
               <option value="declined">Declined</option>
               <option value="paid">Paid</option>
               <option value="">All</option>
@@ -90,6 +95,44 @@
             <button class="btn-gold" id="refresh-btn" style="border:none;cursor:pointer">Refresh</button>
           </div>
           <div id="list"></div>
+        </section>
+
+        <!-- Pane: base locations -->
+        <section id="pane-bases" class="admin-pane">
+          <div class="page-header">
+            <h1>Base locations</h1>
+            <p>Bases your vehicles depart from. Repositioning is measured from whichever
+               base is the shortest drive to the pickup.</p>
+          </div>
+
+          <div class="alert alert-info">
+            <strong>How repositioning works.</strong> When a pickup is more than
+            <strong>40 miles</strong> or <strong>1 hour</strong> from the nearest base, a
+            <strong>$150</strong> fee covers the empty drive to reach the customer.
+            That fee is <strong>added into the base fare</strong> rather than shown as its own
+            line, so the customer sees a single base fare, never a surcharge. The suggestion
+            panel always tells you which base was used and how much is included.
+          </div>
+
+          <div id="bases-msg"></div>
+
+          <form id="base-form" class="base-form">
+            <input type="hidden" id="base-id">
+            <div class="field">
+              <label for="base-label">Label</label>
+              <input type="text" id="base-label" placeholder="e.g. Miami base" maxlength="60" required>
+            </div>
+            <div class="field">
+              <label for="base-address">Address</label>
+              <input type="text" id="base-address" placeholder="Street, city, state" maxlength="200" required>
+            </div>
+            <div class="base-form-actions">
+              <button type="submit" class="btn-accept" id="base-save">Add base</button>
+              <button type="button" class="modal-cancel" id="base-cancel" style="display:none">Cancel</button>
+            </div>
+          </form>
+
+          <div id="bases-list"></div>
         </section>
 
         <!-- Pane: vehicles -->
@@ -225,7 +268,7 @@
     <p id="modal-message"></p>
     <div class="field" id="modal-field" hidden>
       <label for="modal-input" id="modal-label"></label>
-      <textarea id="modal-input"></textarea>
+      <textarea id="modal-input" maxlength="500"></textarea>
     </div>
     <div class="alert alert-error" id="modal-error" hidden></div>
     <div class="modal-actions">
@@ -235,13 +278,26 @@
   </div>
 </div>
 
+
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
+  <button class="carousel-btn carousel-prev" id="lightbox-prev" aria-label="Previous photo">&#8249;</button>
+  <img class="lightbox-img" id="lightbox-img" src="" alt="">
+  <button class="carousel-btn carousel-next" id="lightbox-next" aria-label="Next photo">&#8250;</button>
+  <div class="carousel-dots" id="lightbox-dots"></div>
+</div>
+
 <footer>
   <p>© Tour Rider — NYC Limo &amp; Party Bus Rentals</p>
 </footer>
 
 <script src="config.js"></script>
 <script src="js/sheets.js"></script>
+<script src="js/lightbox.js"></script>
+<script src="js/places.js"></script>
+<script src="js/tripmap.js"></script>
 <script src="js/requests.js"></script>
+<script src="js/bases.js"></script>
 <script src="js/admin.js"></script>
 <script src="js/nav.js"></script>
 </body>
