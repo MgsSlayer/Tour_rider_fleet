@@ -1,6 +1,8 @@
 // Quote request form. Vehicle comes from ?sn=; without one we fall back to a picker.
+// custom-quote.html reuses it with no vehicle at all — the admin matches one later.
 
 let chosenVehicle = null;
+const OPEN_REQUEST = document.getElementById('quote-form')?.dataset.kind === 'open';
 
 async function init() {
   const form = document.getElementById('quote-form');
@@ -9,21 +11,23 @@ async function init() {
   // no trip can be booked for a past date
   document.getElementById('date').min = new Date().toISOString().split('T')[0];
 
-  try {
-    const vehicles = await fetchVehicles();
-    if (sn) {
-      chosenVehicle = vehicles.find(v => v.sn === sn) || null;
-      if (!chosenVehicle) {
-        showAlert('That vehicle could not be found. Pick another from the fleet.');
-        showPicker(vehicles);
+  if (!OPEN_REQUEST) {
+    try {
+      const vehicles = await fetchVehicles();
+      if (sn) {
+        chosenVehicle = vehicles.find(v => v.sn === sn) || null;
+        if (!chosenVehicle) {
+          showAlert('That vehicle could not be found. Pick another from the fleet.');
+          showPicker(vehicles);
+        } else {
+          renderChosen(chosenVehicle);
+        }
       } else {
-        renderChosen(chosenVehicle);
+        showPicker(vehicles);
       }
-    } else {
-      showPicker(vehicles);
+    } catch (err) {
+      showAlert(`Could not load vehicle details: ${escHtml(err.message)}`);
     }
-  } catch (err) {
-    showAlert(`Could not load vehicle details: ${escHtml(err.message)}`);
   }
 
   form.querySelectorAll('input[name="tripType"]')
@@ -152,11 +156,12 @@ async function onSubmit(e) {
   const btn = document.getElementById('submit-btn');
   const form = e.target;
 
-  if (!chosenVehicle) return showAlert('Please choose a vehicle first.');
+  if (!OPEN_REQUEST && !chosenVehicle) return showAlert('Please choose a vehicle first.');
   if (!form.checkValidity()) return showAlert('Please fill in all the required fields.');
 
   const val = (id) => document.getElementById(id).value.trim();
-  const cap = parseInt(chosenVehicle.capacity, 10);
+  const picked = (name) => form.querySelector(`input[name="${name}"]:checked`)?.value;
+  const cap = parseInt(chosenVehicle?.capacity, 10);
   const passengers = Number(val('passengers'));
   if (!Number.isNaN(cap) && cap > 0 && passengers > cap) {
     return showAlert(`This vehicle seats up to ${cap} passengers.`);
@@ -168,11 +173,15 @@ async function onSubmit(e) {
   }
 
   const payload = {
-    vehicleSn: chosenVehicle.sn,
-    vehicleName: vehicleTitle(chosenVehicle),
-    vehicleType: chosenVehicle.type,
-    vehicleCapacity: chosenVehicle.capacity,
-    tripType: form.querySelector('input[name="tripType"]:checked').value,
+    ...(OPEN_REQUEST
+      ? { vehicleCategory: val('vehicleCategory'), city: val('city') }
+      : {
+        vehicleSn: chosenVehicle.sn,
+        vehicleName: vehicleTitle(chosenVehicle),
+        vehicleType: chosenVehicle.type,
+        vehicleCapacity: chosenVehicle.capacity,
+      }),
+    tripType: picked('tripType'),
     date: val('date'),
     pickupTime: val('pickupTime'),
     finalDropoffTime: val('finalDropoffTime'),
@@ -193,7 +202,7 @@ async function onSubmit(e) {
   btn.textContent = 'Sending…';
 
   try {
-    const res = await fetch(`${CONFIG.API_BASE}/api/quotes`, {
+    const res = await fetch(`${CONFIG.API_BASE}/api/quotes${OPEN_REQUEST ? '/open' : ''}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -202,7 +211,8 @@ async function onSubmit(e) {
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
 
     form.style.display = 'none';
-    document.getElementById('vehicle-box').style.display = 'none';
+    const box = document.getElementById('vehicle-box');
+    if (box) box.style.display = 'none';
     document.getElementById('success').style.display = 'block';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {

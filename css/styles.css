@@ -170,6 +170,9 @@ main {
 .filter-select:focus { outline: none; border-color: var(--accent); }
 .filter-select option { background: #1a1a1a; }
 
+.match-prompt { margin: -1rem 0 2rem; color: var(--muted); font-size: .9rem; }
+.match-prompt a { color: var(--accent); font-weight: 600; }
+
 /* ── Sections (collapsible) ── */
 /* One bordered group holding every category row, like a classic accordion —
    rows sit flush with divider lines, not separate floating cards. */

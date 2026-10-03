@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Request a Quote — Tour Rider</title>
-  <meta name="description" content="Tell us about your trip and we'll send you a price.">
+  <title>Find a Vehicle — Tour Rider</title>
+  <meta name="description" content="Tell us about your trip and we'll match you with an available vehicle and price.">
   <meta name="robots" content="noindex">
   <link rel="icon" type="image/png" href="css/logo_tour_ride-removebg-preview-1-3-300x175.png">
   <link rel="stylesheet" href="css/styles.css">
@@ -37,17 +37,30 @@
 
 <div class="form-wrap">
   <div class="form-card">
-    <h1>Request a quote</h1>
-    <p class="form-lede">Tell us about your trip. We'll review it and email you a price, usually within a few hours.</p>
+    <h1>Find the right vehicle</h1>
+    <p class="form-lede">Not sure which vehicle you need? Tell us about your trip and we'll email you an available vehicle and its price, usually within a few hours.</p>
 
     <div id="alert" class="alert alert-error" style="display:none"></div>
-    <div id="vehicle-box"></div>
 
-    <form id="quote-form" novalidate>
-      <div id="vehicle-picker" style="display:none" class="field">
-        <label for="vehicle-select">Choose your vehicle <span class="req">*</span></label>
-        <select id="vehicle-select"><option value="">Loading vehicles…</option></select>
-        <div class="hint">Not sure which to pick? <a href="custom-quote.html">Let us match one to your trip</a>.</div>
+    <!-- no vehicle here: the admin matches one to the trip -->
+    <form id="quote-form" data-kind="open" novalidate>
+      <div class="field-row">
+        <div class="field">
+          <label for="city">City <span class="req">*</span></label>
+          <select id="city" name="city" required>
+            <option value="nynj">NY/NJ</option>
+            <option value="miami">Miami</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="vehicleCategory">Vehicle type <span class="req">*</span></label>
+          <select id="vehicleCategory" name="vehicleCategory" required>
+            <option value="any">Any — you choose</option>
+            <option value="party-bus">Party bus</option>
+            <option value="van-bus">Van, bus or coach</option>
+            <option value="limo-suv">Limo, SUV or sedan</option>
+          </select>
+        </div>
       </div>
 
       <div class="field">
@@ -67,6 +80,7 @@
         <div class="field">
           <label for="passengers">Number of passengers <span class="req">*</span></label>
           <input type="number" id="passengers" name="passengers" min="1" max="100" required>
+          <div class="hint">We'll only offer vehicles that seat everyone.</div>
         </div>
       </div>
 
@@ -120,7 +134,7 @@
       <div class="field">
         <label for="email">Email address <span class="req">*</span></label>
         <input type="email" id="email" name="email" maxlength="254" required autocomplete="email">
-        <div class="hint">We'll send your quote here.</div>
+        <div class="hint">We'll send the vehicle and price here.</div>
       </div>
 
       <div class="field">
@@ -133,9 +147,9 @@
 
     <div id="success" style="display:none">
       <div class="alert alert-ok">
-        <strong>Request received.</strong> We've got your details and will email you a price shortly.
+        <strong>Request received.</strong> We're finding the right vehicle for your trip and will email it to you with a price shortly.
       </div>
-      <p class="form-lede">You can close this page — the quote goes to the email address you gave us.</p>
+      <p class="form-lede">You can close this page. The offer goes to the email address you gave us, with a link to book it.</p>
       <a href="index.html" class="btn-gold">Back to the fleet</a>
     </div>
   </div>

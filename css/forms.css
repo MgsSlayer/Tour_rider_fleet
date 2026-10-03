@@ -46,6 +46,7 @@
 .field textarea { min-height: 90px; resize: vertical; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .hint { color: var(--muted); font-size: .78rem; margin-top: .3rem; }
+.hint a { color: var(--accent); }
 /* for a hint that is a rule, not a note */
 .hint-warn { color: #ff8a95; }
 
@@ -414,6 +415,38 @@
 .base-edit:hover { border-color: var(--accent); color: var(--accent); }
 .base-delete:hover { border-color: rgba(220,53,69,.5); color: #ff8a95; }
 .bd-candidate .bc-parts { font-size: .7rem; color: var(--muted); }
+
+/* open request: fleet vehicles that fit, one to pick */
+.bd-matches { margin-bottom: 1rem; }
+.bd-matches-head {
+  display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap;
+  margin-bottom: .55rem;
+}
+.bd-matches-head span { font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.bd-matches-refresh {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: .78rem; font-weight: 700;
+}
+.bd-matches-refresh:disabled { opacity: .5; cursor: progress; }
+.bd-match-list { display: flex; flex-direction: column; gap: .45rem; max-height: 340px; overflow-y: auto; }
+.bd-match {
+  display: flex; align-items: center; gap: .75rem; width: 100%; text-align: left; cursor: pointer;
+  background: #0f0f0f; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .5rem .7rem; font: inherit; color: var(--text);
+}
+.bd-match:hover { border-color: var(--accent); }
+.bd-match.chosen { border-color: var(--accent); background: var(--card-hover); }
+.bd-match img { width: 64px; height: 44px; flex-shrink: 0; object-fit: cover; border-radius: 6px; background: #0a0a0a; }
+.bd-match .bm-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bd-match .bm-name { font-weight: 700; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-match .bm-meta { font-size: .75rem; color: var(--muted); }
+.bd-match .bm-price { display: flex; flex-direction: column; text-align: right; font-weight: 700; white-space: nowrap; }
+.bd-match .bm-price small { font-size: .72rem; font-weight: 600; color: var(--muted); }
+.bd-match-empty { font-size: .85rem; color: var(--muted); padding: .4rem 0; }
+@media (max-width: 420px) {
+  .bd-match { gap: .55rem; padding: .45rem .55rem; }
+  .bd-match img { width: 48px; height: 36px; }
+}
 
 @media (max-width: 700px) {
   .base-form { grid-template-columns: 1fr; }
