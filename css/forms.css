@@ -121,10 +121,18 @@
   box-shadow: var(--shadow-lg);
   padding: 1.6rem;
   animation: modal-rise .18s ease;
+  /* a long breakdown scrolls inside the dialog instead of running off a phone screen */
+  max-height: calc(100dvh - 2rem); overflow-y: auto;
 }
 .modal h2 { margin: 0 0 .5rem; font-size: 1.15rem; }
 .modal p  { margin: 0 0 1.2rem; color: var(--muted); font-size: .92rem; line-height: 1.55; }
 .modal .field { margin-bottom: 1rem; }
+/* the quote breakdown in the send confirmation */
+.modal-details {
+  margin: -.4rem 0 0; padding: .7rem .85rem; font-size: .9rem;
+  background: #0f0f0f; border: 1px solid var(--border); border-radius: var(--radius);
+}
+.modal-details div.total + div { margin-top: .3rem; }
 .modal-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.2rem; }
 .modal-cancel, .modal-confirm {
   border-radius: var(--radius); padding: .6rem 1.2rem;
@@ -231,6 +239,8 @@
   object-fit: cover; border-radius: var(--radius);
   border: 1px solid var(--border); background: #0f0f0f;
 }
+/* the reservation number customers quote back, e.g. in a Zelle memo */
+.req-ref { margin-left: .35rem; font-size: .72rem; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
 .req-vehicle-name { font-size: .85rem; font-weight: 600; color: var(--accent); margin-bottom: .1rem; }
 .req-vehicle-pic.clickable { cursor: zoom-in; transition: border-color .15s, transform .15s; }
 .req-vehicle-pic.clickable:hover { border-color: var(--accent); transform: scale(1.04); }
@@ -416,6 +426,23 @@
 .base-delete:hover { border-color: rgba(220,53,69,.5); color: #ff8a95; }
 .bd-candidate .bc-parts { font-size: .7rem; color: var(--muted); }
 
+/* deposit share, set per booking before the quote goes out */
+.bd-deposit { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-top: .8rem; }
+.bd-deposit label { display: flex; align-items: center; gap: .6rem; font-size: .78rem; font-weight: 700;
+  color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.bd-deposit-input {
+  display: inline-flex; align-items: center; gap: .3rem;
+  background: #0f0f0f; border: 1px solid var(--border); border-radius: var(--radius); padding: 0 .6rem 0 0;
+}
+.bd-deposit-input:focus-within { border-color: var(--accent); }
+.bd-deposit-input input {
+  width: 4.2rem; background: none; border: none; color: var(--text);
+  font: inherit; font-size: .95rem; font-weight: 700; padding: .45rem .6rem; text-align: right;
+}
+.bd-deposit-input input:focus { outline: none; }
+.bd-deposit-input span { color: var(--muted); font-weight: 700; }
+.bd-deposit-note { font-size: .8rem; color: var(--muted); }
+
 /* open request: fleet vehicles that fit, one to pick */
 .bd-matches { margin-bottom: 1rem; }
 .bd-matches-head {
@@ -592,15 +619,12 @@
   margin-top: .4rem; padding-top: .5rem; border-top: 1px solid var(--border);
   color: var(--text); font-weight: 700; font-size: .95rem;
 }
+/* Zelle QR on the booking-held screen, for scanning a computer screen with a phone */
+.zelle-qr { margin: 0 0 1.5rem; text-align: center; }
+.zelle-qr img { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto .6rem; border-radius: var(--radius); }
+.zelle-qr p { margin: 0; font-size: .85rem; color: var(--muted); }
+
+/* what is still owed after a deposit, set apart from what is paid now */
+.fee-summary .fee-later { margin-top: .35rem; font-size: .82rem; }
 .offline-note { margin: 0 0 1rem; font-size: .88rem; color: var(--muted); line-height: 1.5; }
 
-.savecard-row {
-  display: flex; align-items: flex-start; gap: .6rem;
-  margin: 0 0 1.1rem; font-size: .85rem; color: var(--muted);
-  cursor: pointer; line-height: 1.5;
-}
-.savecard-row[hidden] { display: none; }
-.savecard-row input {
-  width: 18px; height: 18px; margin: .1rem 0 0; flex-shrink: 0;
-  accent-color: var(--accent); cursor: pointer;
-}

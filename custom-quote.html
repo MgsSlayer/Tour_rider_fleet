@@ -37,8 +37,7 @@
 
 <div class="form-wrap">
   <div class="form-card">
-    <h1>Find the right vehicle</h1>
-    <p class="form-lede">Not sure which vehicle you need? Tell us about your trip and we'll email you an available vehicle and its price, usually within a few hours.</p>
+    <h1>Request Quote</h1>
 
     <div id="alert" class="alert alert-error" style="display:none"></div>
 
@@ -55,7 +54,7 @@
         <div class="field">
           <label for="vehicleCategory">Vehicle type <span class="req">*</span></label>
           <select id="vehicleCategory" name="vehicleCategory" required>
-            <option value="any">Any — you choose</option>
+            <option value="" disabled selected>Select a vehicle type</option>
             <option value="party-bus">Party bus</option>
             <option value="van-bus">Van, bus or coach</option>
             <option value="limo-suv">Limo, SUV or sedan</option>

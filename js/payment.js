@@ -53,6 +53,7 @@ function subtotalNow() {
 const feeRate = (method) => Number(fees[method] || 0);
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const feeFor = (method) => round2(subtotalNow() * feeRate(method));
+const amountFor = (method) => round2(subtotalNow() + feeFor(method));
 
 // what the customer is actually charged for the method they have selected
 function amountNow() {
@@ -91,7 +92,6 @@ async function init() {
   syncGate();
 
   document.getElementById('pay-button').addEventListener('click', onPayCard);
-  document.getElementById('save-card').addEventListener('change', renderDepositNote);
   OFFLINE.forEach((m) => {
     document.getElementById(`${m}-choose`).addEventListener('click', () => chooseOffline(m));
   });
@@ -101,6 +101,7 @@ async function init() {
 
 function renderQuote() {
   const rows = [
+    quote.reservationNumber ? ['Reservation', quote.reservationNumber] : null,
     ['Vehicle', quote.vehicle?.name || quote.vehicle?.type || '—'],
     ['Date', `${quote.date} at ${quote.pickupTime}`],
     ['Pick-up', quote.pickupAddress],
@@ -125,8 +126,15 @@ function renderQuote() {
     return;
   }
 
-  document.getElementById('deposit-amount').textContent = money(quote.depositAmount);
   document.getElementById('full-amount').textContent = money(quote.quotedAmount);
+  // a booking set to full payment only has no deposit to offer
+  if (!quote.depositAmount) {
+    document.querySelector('input[name="paymentOption"][value="full"]').checked = true;
+    document.querySelector('.amount-choice').hidden = true;
+    return;
+  }
+  document.getElementById('deposit-label').textContent = `Deposit (${quote.depositPercent}%)`;
+  document.getElementById('deposit-amount').textContent = money(quote.depositAmount);
 }
 
 async function loadSquare() {
@@ -167,7 +175,7 @@ const loadScript = (src) => new Promise((resolve, reject) => {
 
 function updateChoice() {
   syncMethodAvailability();
-  document.getElementById('pay-amount').textContent = money(amountNow());
+  syncPayLabels();
   renderDepositNote();
   renderFeeSummary();
   refreshTabTotals();
@@ -184,30 +192,42 @@ function syncMethodAvailability() {
   if (depositing && activeMethod === 'cash') selectMethod('card');
 }
 
-const savingCard = () => {
-  const box = document.getElementById('save-card');
-  return activeMethod === 'card' && !!box && box.checked;
-};
+// every button that takes money says how much; wallet buttons are drawn by their providers
+function syncPayLabels() {
+  document.getElementById('pay-amount').textContent = money(amountFor('card'));
+  document.getElementById('zelle-choose').textContent = `Pay ${money(amountFor('zelle'))} by Zelle`;
+  document.getElementById('cash-choose').textContent = `Pay ${money(amountFor('cash'))} by cash`;
+}
+
+const depositing = () => mode === 'initial' && selectedOption() === 'deposit';
 
 /**
- * Says what will actually happen to the balance. Only a card the customer
- * agrees to store can be charged again; everything else gets asked for.
+ * What is still owed after the deposit. A card is kept and charged on arrival
+ * with its surcharge; Zelle is settled by Zelle on arrival; any other method is
+ * asked for by link, where the fee depends on what the customer pays with then.
  */
+function balanceLater() {
+  const base = round2(Number(quote.quotedAmount) - Number(quote.depositAmount));
+  if (activeMethod === 'card') {
+    return { how: 'card', amount: round2(base + round2(base * feeRate('card'))) };
+  }
+  return { how: activeMethod === 'zelle' ? 'zelle' : 'link', amount: base };
+}
+
 function renderDepositNote() {
   const note = document.getElementById('deposit-note');
-  const wrap = document.getElementById('save-card-wrap');
-  const isDeposit = mode === 'initial' && selectedOption() === 'deposit';
-
-  // keeping a card only arises on a deposit paid by card
-  if (wrap) wrap.hidden = !(isDeposit && activeMethod === 'card');
-
-  if (!isDeposit) {
+  if (!depositing()) {
     note.style.display = 'none';
     return;
   }
-  note.textContent = savingCard()
-    ? "We'll securely save your card and charge the remaining balance on the morning of your trip."
-    : 'The remaining balance will be requested on the morning of your trip.';
+  const later = balanceLater();
+  if (later.how === 'card') {
+    note.textContent = 'Your card will automatically be charged on arrival of your vehicle.';
+  } else if (later.how === 'zelle') {
+    note.innerHTML = `Balance of ${esc(money(later.amount))} is due via Zelle on <strong>arrival of the vehicle</strong>.`;
+  } else {
+    note.textContent = "We'll email you a payment link on the morning of your trip. A processing fee may apply, depending on how you pay.";
+  }
   note.style.display = 'block';
 }
 
@@ -217,13 +237,23 @@ function renderFeeSummary() {
   const subtotal = subtotalNow();
   const fee = feeFor(activeMethod);
   const rate = feeRate(activeMethod);
-  const label = (METHODS.find(m => m.id === activeMethod) || {}).label || 'Card';
-
   box.innerHTML = `
     <div><span>${mode === 'balance' ? 'Balance' : (selectedOption() === 'deposit' ? 'Deposit' : 'Booking total')}</span><span>${money(subtotal)}</span></div>
-    <div><span>${esc(label)} fee${rate ? ` (${esc((rate * 100).toFixed(rate * 100 % 1 ? 2 : 0))}%)` : ''}</span><span>${fee ? money(fee) : 'None'}</span></div>
-    <div class="fee-total"><span>You pay</span><span>${money(round2(subtotal + fee))}</span></div>`;
+    <div><span>Processing fee${rate ? ` (${esc((rate * 100).toFixed(rate * 100 % 1 ? 2 : 0))}%)` : ''}</span><span>${fee ? money(fee) : 'None'}</span></div>
+    <div class="fee-total"><span>You pay</span><span>${money(round2(subtotal + fee))}</span></div>`
+    + (depositing() ? balanceRow(balanceLater()) : '');
   box.hidden = false;
+}
+
+function balanceRow(later) {
+  const label = {
+    card: feeRate('card')
+      ? `Balance charged on arrival (incl. ${esc(rateLabel('card').replace('+', ''))} processing fee)`
+      : 'Balance charged on arrival',
+    zelle: 'Balance due via Zelle on arrival',
+    link: 'Balance due on pickup day',
+  }[later.how];
+  return `<div class="fee-later"><span>${label}</span><span>${money(later.amount)}</span></div>`;
 }
 
 function syncGate() {
@@ -325,7 +355,7 @@ async function selectMethod(method) {
 
   renderFeeSummary();
   renderDepositNote();
-  document.getElementById('pay-amount').textContent = money(amountNow());
+  syncPayLabels();
   if (method !== 'card' && !OFFLINE.includes(method)) await mountMethod(method);
 }
 
@@ -540,7 +570,7 @@ async function onPayCard() {
     if (result.status !== 'OK') {
       throw new Error(result.errors?.[0]?.message || 'Please check your card details.');
     }
-    await submitSquare('card', result.token, { saveCard: savingCard() });
+    await submitSquare('card', result.token);
   } catch (err) {
     payError(err.message || 'Payment failed. Please try again.');
   } finally {
@@ -578,10 +608,18 @@ async function chooseOffline(method) {
     if (!data.success) throw new Error(data.error || 'Could not record your choice.');
 
     hide('pay-state');
-    document.getElementById('done-title').textContent = 'Booking held';
-    document.getElementById('done-note').textContent =
-      `${data.instructions} ${money(data.amountDue)} is due.`
-      + (data.remainingBalance > 0 ? ` The remaining ${money(data.remainingBalance)} is due on the day of your trip.` : '');
+    document.getElementById('done-title').textContent = 'Booking held.';
+    document.getElementById('done-sub').textContent = "We'll confirm your ride once the payment arrives.";
+    document.getElementById('zelle-qr').hidden = method !== 'zelle';
+    if (quote.reservationNumber) {
+      document.getElementById('zelle-qr-note').innerHTML =
+        `Or scan this code in your bank's app. Add <strong>${esc(quote.reservationNumber)}</strong> in the memo.`;
+    }
+    document.getElementById('done-note').innerHTML =
+      `${esc(data.instructions)} ${esc(money(data.amountDue))} is due.`
+      + (data.remainingBalance > 0
+        ? ` Balance of ${esc(money(data.remainingBalance))} is due via Zelle on <strong>arrival of the vehicle</strong>.`
+        : '');
     show('done-state');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {
@@ -595,7 +633,7 @@ async function chooseOffline(method) {
 function succeed(data) {
   hide('pay-state');
   const paid = money(data.amountPaid);
-  const fee = data.processingFee > 0 ? ` (${money(data.subtotal)} plus a ${money(data.processingFee)} ${data.method} fee)` : '';
+  const fee = data.processingFee > 0 ? ` (${money(data.subtotal)} plus a ${money(data.processingFee)} processing fee)` : '';
 
   let note;
   if (mode === 'balance') {
@@ -603,7 +641,10 @@ function succeed(data) {
   } else if (data.balanceByLink) {
     note = `We've taken ${paid}${fee}. ${money(data.remainingBalance)} is due on the day of your trip, and we'll email you a payment link that morning. A receipt is on its way to your inbox.`;
   } else if (data.remainingBalance > 0) {
-    note = `We've charged ${paid}${fee}. The remaining ${money(data.remainingBalance)} will be charged to the same card on the morning of your trip. A receipt is on its way to your inbox.`;
+    // the balance carries the same processing fee the deposit just did
+    const later = round2(data.remainingBalance + round2(data.remainingBalance * Number(data.processingFeeRate || 0)));
+    note = `We've charged ${paid}${fee}. The balance of ${money(later)}${data.processingFee > 0 ? ' (including the processing fee)' : ''} `
+      + 'will be charged to the same card automatically on arrival of your vehicle. A receipt is on its way to your inbox.';
   } else {
     note = `We've charged ${paid}${fee} in full. A receipt is on its way to your inbox.`;
   }

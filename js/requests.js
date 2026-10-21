@@ -3,6 +3,9 @@
 const TOKEN_KEY = 'trAdminToken';
 const getToken = () => sessionStorage.getItem(TOKEN_KEY);
 const money = (n) => `$${Number(n).toFixed(2)}`;
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+// pre-fills each new quote's deposit; the server sends its default with the list
+let defaultDepositPercent = 20;
 
 function esc(str) {
   return String(str ?? '')
@@ -31,7 +34,8 @@ async function api(path, options = {}) {
 
 // Promise-based replacement for confirm()/prompt().
 // Resolves false/null on cancel; with `input`, resolves the entered text.
-function openModal({ title, message, confirmLabel = 'Confirm', danger = false, input = null }) {
+// `details` is an optional list of { label, value, total } rows shown as a two-column summary
+function openModal({ title, message, confirmLabel = 'Confirm', danger = false, input = null, details = null }) {
   return new Promise(resolve => {
     const backdrop = document.getElementById('modal');
     const field = document.getElementById('modal-field');
@@ -42,6 +46,10 @@ function openModal({ title, message, confirmLabel = 'Confirm', danger = false, i
 
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-message').textContent = message;
+    const summary = document.getElementById('modal-details');
+    summary.hidden = !details;
+    summary.innerHTML = (details || []).map(r =>
+      `<div${r.total ? ' class="total"' : ''}><span>${esc(r.label)}</span><span>${esc(r.value)}</span></div>`).join('');
     confirmBtn.textContent = confirmLabel;
     confirmBtn.classList.toggle('danger', danger);
     error.hidden = true;
@@ -177,10 +185,11 @@ async function loadRequests() {
   const status = document.getElementById('status-filter').value;
 
   try {
-    const [{ quotes }] = await Promise.all([
+    const [{ quotes, depositPercent }] = await Promise.all([
       api(`/api/quotes${status ? `?status=${status}` : ''}`),
       loadVehicleRates(),
     ]);
+    if (depositPercent) defaultDepositPercent = depositPercent;
     document.getElementById('dash-sub').textContent =
       `${quotes.length} ${status || 'total'} request${quotes.length === 1 ? '' : 's'}`;
 
@@ -221,7 +230,7 @@ function renderCard(q) {
              data-sn="${esc(q.vehicle?.sn || '')}"
              onerror="this.src='css/placeholder.svg'">
         <div>
-          <h3>${esc(q.customer.name)}</h3>
+          <h3>${esc(q.customer.name)}${q.reservationNumber ? ` <span class="req-ref">${esc(q.reservationNumber)}</span>` : ''}</h3>
           <div class="req-vehicle-name">${isOpen && !q.vehicle?.sn
             ? `Open request · ${esc(wantsLabel(q.wants))}`
             : `${esc(q.vehicle?.name || q.vehicle?.type || 'Vehicle')}${q.vehicle?.sn ? ` · S/N ${esc(q.vehicle.sn)}` : ''}`}</div>
@@ -260,7 +269,10 @@ function renderCard(q) {
           : money(q.quotedAmount)}</dd>` : ''}
         ${q.paymentMethod ? `<dt>Method</dt><dd>${esc(METHOD_LABELS[q.paymentMethod] || q.paymentMethod)}${
           q.processingFee > 0 ? ` · ${money(q.processingFee)} fee` : ' · no fee'}</dd>` : ''}
-        ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.remainingBalance > 0 ? ` (${money(q.remainingBalance)} due on pickup day)` : ''}</dd>` : ''}
+        ${q.quotedAmount && q.depositRate ? `<dt>Deposit</dt><dd>${q.depositRate < 1
+          ? `${Math.round(q.depositRate * 100)}% (${money(round2(q.quotedAmount * q.depositRate))})`
+          : 'Full payment only'}</dd>` : ''}
+        ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.remainingBalance > 0 && !q.remainingBalancePaid ? ` (${money(q.remainingBalance)} balance outstanding)` : ''}</dd>` : ''}
         ${q.declineReason ? `<dt>Declined</dt><dd>${esc(q.declineReason)}</dd>` : ''}
       </dl>
     </div>
@@ -274,7 +286,7 @@ function renderCard(q) {
     ${q.status === 'paid' && q.paymentOption === 'deposit'
         && q.remainingBalance > 0 && !q.remainingBalancePaid ? `
     <div class="req-actions">
-      <button class="btn-charge" data-amount="${money(q.remainingBalance)}">Charge balance now (${money(q.remainingBalance)})</button>
+      <button class="btn-charge" data-amount="${money(balanceWithCardFee(q))}">Charge balance now (${money(balanceWithCardFee(q))})</button>
     </div>
     <div class="card-msg"></div>` : ''}
 
@@ -322,6 +334,17 @@ function renderCard(q) {
         </div>
 
         <div class="bd-total"><span>Total</span><strong class="bd-total-value">$0.00</strong></div>
+
+        <div class="bd-deposit">
+          <label>Deposit
+            <span class="bd-deposit-input">
+              <input type="number" class="bd-deposit-pct" min="1" max="100" step="1"
+                     value="${defaultDepositPercent}" aria-label="Deposit percentage">
+              <span aria-hidden="true">%</span>
+            </span>
+          </label>
+          <span class="bd-deposit-note"></span>
+        </div>
       </div>
     </div>
     <div class="req-actions">
@@ -410,6 +433,33 @@ function refreshTotals(card, state) {
   card.querySelector('.bd-total-value').textContent = money(total);
   card.querySelector('.bd-total').classList.toggle('empty', !base);
   state.total = total;
+  refreshDeposit(card, state);
+}
+
+// a card balance is charged with the same surcharge its deposit carried
+const balanceWithCardFee = (q) => {
+  const base = Number(q.remainingBalance) || 0;
+  return round2(base + round2(base * (Number(q.processingFeeRate) || 0)));
+};
+
+const depositPercentOf = (card) => Number(card.querySelector('.bd-deposit-pct')?.value);
+const validDepositPercent = (pct) => Number.isInteger(pct) && pct >= 1 && pct <= 100;
+
+// what the customer will be asked for now, and what is left for later
+function refreshDeposit(card, state) {
+  const note = card.querySelector('.bd-deposit-note');
+  if (!note) return;
+  const pct = depositPercentOf(card);
+  if (!validDepositPercent(pct)) {
+    note.textContent = 'Enter a whole number from 1 to 100.';
+  } else if (pct === 100) {
+    note.textContent = 'Full payment only, no deposit option.';
+  } else if (!state.total) {
+    note.textContent = '';
+  } else {
+    const now = round2(state.total * pct / 100);
+    note.textContent = `${money(now)} now · ${money(state.total - now)} balance`;
+  }
 }
 
 function wireBreakdown(card) {
@@ -423,6 +473,8 @@ function wireBreakdown(card) {
     state.touched = true;          // a suggestion must never overwrite this
     refreshTotals(card, state);
   });
+
+  card.querySelector('.bd-deposit-pct').addEventListener('input', () => refreshDeposit(card, state));
 
   // the $ and USD labels sit over the field — make the whole box focus it
   card.querySelector('.amount-input').addEventListener('click', () => baseInput.focus());
@@ -866,16 +918,22 @@ function wireCards() {
       if (!Number.isFinite(baseFare) || baseFare <= 0) return showMsg('Enter a base fare first.');
       const unlabelled = state.lines.find(l => !String(l.label).trim());
       if (unlabelled) return showMsg('Every line item needs a label.');
-
-      const breakdown = state.lines.length
-        ? `\n\nBase fare ${money(baseFare)}\n` + state.lines
-            .map(l => `${l.label} ${money(priceQuote(baseFare, state.lines).priced.find(p => p.id === l.id).amount)}`)
-            .join('\n')
-        : '';
+      const depositPercent = depositPercentOf(card);
+      if (!validDepositPercent(depositPercent)) return showMsg('Deposit must be a whole number from 1 to 100.');
+      // one row per charge, so the admin can check each figure before it goes out
+      const details = [
+        { label: 'Base fare', value: money(baseFare) },
+        ...priceQuote(baseFare, state.lines).priced.map(l => ({ label: l.label, value: money(l.amount) })),
+        { label: 'Total', value: money(state.total), total: true },
+        depositPercent === 100
+          ? { label: 'Deposit', value: 'Full payment only' }
+          : { label: `Deposit (${depositPercent}%)`, value: money(round2(state.total * depositPercent / 100)) },
+      ];
 
       const confirmed = await openModal({
         title: 'Send this quote?',
-        message: `${isOpen ? `${state.vehicleName} at ` : ''}${money(state.total)} will be emailed to ${card.dataset.email} with a payment link.${breakdown}`,
+        message: `${isOpen ? `${state.vehicleName} at ` : ''}${money(state.total)} will be emailed to ${card.dataset.email} with a payment link.`,
+        details,
         confirmLabel: 'Send quote',
       });
       if (!confirmed) return;
@@ -887,6 +945,7 @@ function wireCards() {
           method: 'PATCH',
           body: JSON.stringify({
             vehicleSn: state.vehicleSn || undefined,
+            depositPercent,
             baseFare,
             lineItems: state.lines.map(l => ({
               id: l.id,

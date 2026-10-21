@@ -45,9 +45,9 @@
       <div class="amount-choice">
         <label>
           <input type="radio" name="paymentOption" value="deposit" checked>
-          <div class="ac-label">Deposit</div>
+          <div class="ac-label" id="deposit-label">Deposit</div>
           <div class="ac-amount" id="deposit-amount">—</div>
-          <div class="ac-note">Balance charged on pickup day</div>
+          <div class="ac-note">Balance due on arrival</div>
         </label>
         <label>
           <input type="radio" name="paymentOption" value="full">
@@ -55,10 +55,6 @@
           <div class="ac-amount" id="full-amount">—</div>
           <div class="ac-note">Nothing further due</div>
         </label>
-      </div>
-
-      <div id="deposit-note" class="alert alert-info">
-        We'll securely save your card and charge the remaining balance on the morning of your trip.
       </div>
 
       <label class="terms-row" for="accept-terms">
@@ -73,14 +69,15 @@
       <div id="pay-methods-wrap" class="gated">
         <div class="pay-methods" id="method-tabs" role="tablist" aria-label="Payment method"></div>
 
+        <!-- depends on the method chosen above, so it sits right under the list -->
+        <div id="deposit-note" class="alert alert-info">
+          Your card will automatically be charged on arrival of your vehicle.
+        </div>
+
         <div class="fee-summary" id="fee-summary" hidden></div>
 
         <div class="pay-panel" data-method="card">
           <div id="card-container"></div>
-          <label class="savecard-row" for="save-card" id="save-card-wrap" hidden>
-            <input type="checkbox" id="save-card">
-            <span>Save my card so the remaining balance can be charged automatically on the morning of my trip.</span>
-          </label>
           <button id="pay-button" class="btn-submit">Pay <span id="pay-amount"></span></button>
         </div>
         <div class="pay-panel" data-method="apple_pay" hidden>
@@ -115,8 +112,13 @@
     </div>
 
     <div id="done-state" style="display:none">
-      <div class="alert alert-ok"><strong id="done-title">Payment received.</strong> Your ride is confirmed.</div>
+      <div class="alert alert-ok"><strong id="done-title">Payment received.</strong> <span id="done-sub">Your ride is confirmed.</span></div>
       <p class="form-lede" id="done-note"></p>
+      <!-- shown after choosing Zelle; the code identifies the account, not the amount or memo -->
+      <div class="zelle-qr" id="zelle-qr" hidden>
+        <img src="img/pay/zelle-qr.jpg" alt="Zelle QR code" width="300">
+        <p id="zelle-qr-note">Or scan this code in your bank's app. Add your reservation number in the memo.</p>
+      </div>
       <a href="index.html" class="btn-gold">Back to the fleet</a>
     </div>
   </div>
