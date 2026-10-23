@@ -45,6 +45,8 @@
 }
 .field textarea { min-height: 90px; resize: vertical; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+/* one field left in the row (one-way trip, no drop-off time) takes the full width */
+.field-row.single { grid-template-columns: 1fr; }
 .hint { color: var(--muted); font-size: .78rem; margin-top: .3rem; }
 .hint a { color: var(--accent); }
 /* for a hint that is a rule, not a note */

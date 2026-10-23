@@ -265,7 +265,7 @@ function renderCard(q) {
       <dl>
         ${isOpen ? `<dt>Wanted</dt><dd>${esc(wantsLabel(q.wants))}</dd>` : ''}
         <dt>Trip</dt><dd>${esc(q.tripType)} · ${q.passengers} passengers</dd>
-        <dt>Date</dt><dd>${esc(q.date)} ${esc(q.pickupTime)} → ${esc(q.finalDropoffTime)}</dd>
+        <dt>Date</dt><dd>${esc(q.date)} ${esc(q.pickupTime)}${q.finalDropoffTime ? ` → ${esc(q.finalDropoffTime)}` : ''}</dd>
         <dt>Pick-up</dt><dd>${esc(q.pickupAddress)}</dd>
         ${tripStops(q).map((stop, i, all) =>
           `<dt>${all.length > 1 ? `Stop ${i + 1}` : 'Stop over'}</dt><dd>${esc(stop.address)}</dd>`).join('')}

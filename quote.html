@@ -70,12 +70,13 @@
         </div>
       </div>
 
-      <div class="field-row">
+      <div class="field-row" id="times-row">
         <div class="field">
           <label for="pickupTime">Pick-up time <span class="req">*</span></label>
           <input type="time" id="pickupTime" name="pickupTime" required>
         </div>
-        <div class="field">
+        <!-- hidden for a one-way trip until a stop-over is added -->
+        <div class="field" id="dropoff-time-field">
           <label for="finalDropoffTime">Final drop-off time <span class="req">*</span></label>
           <input type="time" id="finalDropoffTime" name="finalDropoffTime" required>
           <div class="hint hint-warn" id="min-trip-warning" hidden>Minimum booking is 3 hours.</div>

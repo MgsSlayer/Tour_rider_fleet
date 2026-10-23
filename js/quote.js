@@ -136,6 +136,20 @@ function drawTripMap() {
   if (any) renderTripMap(el, points, tripMapStore);
 }
 
+// a one-way trip has no drop-off time to give until it has a stop to wait at
+function syncDropoffTime() {
+  const field = document.getElementById('dropoff-time-field');
+  const input = document.getElementById('finalDropoffTime');
+  const oneWay = document.querySelector('input[name="tripType"]:checked')?.value === 'one-way';
+  const hide = oneWay && stopInputs().length === 0;
+  field.hidden = hide;
+  input.required = !hide;
+  // cleared so a hidden time is never sent
+  if (hide) input.value = '';
+  document.getElementById('times-row').classList.toggle('single', hide);
+  syncMinTrip();
+}
+
 // a copied drop-off is only right for a round trip; any other trip type starts it blank
 function syncTripType() {
   const pickup = document.getElementById('pickupAddress');
@@ -147,6 +161,7 @@ function syncTripType() {
     dropoff.value = '';
     tripCoords.dropoff = null;
   }
+  syncDropoffTime();
   drawTripMap();
 }
 
@@ -187,6 +202,7 @@ function syncStops() {
     row.querySelector('.stop-remove').setAttribute('aria-label', `Remove stop-over ${i + 1}`);
   });
   document.getElementById('add-stop').hidden = stopInputs().length >= MAX_STOPS;
+  syncDropoffTime();
 }
 
 function renderChosen(v) {
@@ -252,8 +268,10 @@ async function onSubmit(e) {
     return showAlert(`This vehicle seats up to ${cap} passengers.`);
   }
 
+  // without a drop-off time (one way, no stops) there is no length to check; the price carries the minimum
+  const dropoffAsked = !document.getElementById('dropoff-time-field').hidden;
   const booked = tripMinutes(val('pickupTime'), val('finalDropoffTime'));
-  if (!OPEN_REQUEST && (booked === null || booked < MIN_TRIP_HOURS * 60)) {
+  if (!OPEN_REQUEST && dropoffAsked && (booked === null || booked < MIN_TRIP_HOURS * 60)) {
     return showAlert(`Trips run for a minimum of ${MIN_TRIP_HOURS} hours. Please adjust your pick-up or drop-off time.`);
   }
 
