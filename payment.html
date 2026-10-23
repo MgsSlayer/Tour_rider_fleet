@@ -57,6 +57,17 @@
         </label>
       </div>
 
+      <!-- shown only when the admin leaves gratuity to the customer; options come from the server -->
+      <div class="gratuity" id="gratuity" hidden>
+        <div class="gratuity-label">Gratuity</div>
+        <div class="radio-group" id="tip-percent" role="radiogroup" aria-label="Gratuity"></div>
+        <div class="radio-group tip-method" role="radiogroup" aria-label="How to pay the gratuity">
+          <label><input type="radio" name="tipMethod" value="online" checked><span>Add to my payment</span></label>
+          <label><input type="radio" name="tipMethod" value="cash"><span>Pay my driver in cash</span></label>
+        </div>
+        <p class="tip-note" id="tip-note" hidden></p>
+      </div>
+
       <label class="terms-row" for="accept-terms">
         <input type="checkbox" id="accept-terms">
         <span>I have read and accept the

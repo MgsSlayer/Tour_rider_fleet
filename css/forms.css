@@ -255,12 +255,13 @@
 .badge-declined { background: rgba(220,53,69,.15); color: #ff8a95; }
 .badge-paid     { background: rgba(90,160,255,.15); color: #8ab8ff; }
 .badge-awaiting_payment { background: rgba(245,166,35,.15); color: var(--accent); }
-.btn-confirm {
+/* the charge button has its own class: sharing .btn-confirm would also confirm the booking's payment */
+.btn-confirm, .btn-confirm-charge {
   background: rgba(40,167,69,.15); color: #7ee29b; border: 1px solid rgba(40,167,69,.4);
   border-radius: var(--radius); padding: .6rem 1rem; font-weight: 600; cursor: pointer; width: 100%;
 }
-.btn-confirm:hover { background: rgba(40,167,69,.25); }
-.btn-confirm:disabled { opacity: .55; cursor: default; }
+.btn-confirm:hover, .btn-confirm-charge:hover { background: rgba(40,167,69,.25); }
+.btn-confirm:disabled, .btn-confirm-charge:disabled { opacity: .55; cursor: default; }
 .req-actions { display: flex; gap: .6rem; margin-top: 1rem; flex-wrap: wrap; }
 
 /* quote breakdown editor */
@@ -443,6 +444,29 @@
 .bd-deposit-input span { color: var(--muted); font-weight: 700; }
 .bd-deposit-note { font-size: .8rem; color: var(--muted); }
 
+.bd-tip { display: flex; align-items: center; gap: .55rem; margin-top: .8rem; font-size: .85rem; color: var(--muted); cursor: pointer; }
+.bd-tip input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+
+/* charges added after the trip */
+.xc { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.xc-head { font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .5rem; }
+.xc-item { padding: .6rem .8rem; margin-bottom: .5rem; background: #0f0f0f; border: 1px solid var(--border); border-radius: var(--radius); font-size: .88rem; }
+.xc-item .btn-confirm-charge { margin-top: .5rem; }
+.xc-meta { color: var(--muted); font-size: .8rem; margin-top: .2rem; }
+.btn-xc-open { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; }
+.btn-xc-open:hover { text-decoration: underline; }
+.xc-form { margin-top: .6rem; }
+.xc-fields { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.xc-form select, .xc-form input {
+  background: #0f0f0f; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .55rem .7rem; font: inherit; font-size: .9rem; box-sizing: border-box;
+}
+.xc-form select { flex: 0 0 auto; }
+.xc-amount { flex: 1; min-width: 120px; }
+.xc-desc { width: 100%; }
+.xc-form select:focus, .xc-form input:focus { outline: none; border-color: var(--accent); }
+.xc-how { margin: .6rem 0 0; font-size: .8rem; color: var(--muted); }
+
 /* open request: fleet vehicles that fit, one to pick */
 .bd-matches { margin-bottom: 1rem; }
 .bd-matches-head {
@@ -506,11 +530,12 @@
 }
 .amount-prefix { left: .8rem; font-weight: 700; color: var(--accent); }
 .amount-suffix { right: .8rem; font-size: .75rem; letter-spacing: .06em; }
-.btn-accept, .btn-decline {
+.btn-accept, .btn-decline, .xc-submit, .xc-cancel {
   border: none; border-radius: var(--radius); padding: .6rem 1.1rem;
   font-weight: 700; cursor: pointer; font-size: .9rem;
 }
-.btn-accept  { background: var(--accent); color: #000; }
+/* the extra-charge form looks like the quote buttons but must not be mistaken for them */
+.btn-accept, .xc-submit { background: var(--accent); color: #000; }
 .btn-charge {
   background: transparent; color: #8ab8ff; border: 1px solid rgba(90,160,255,.45);
   border-radius: var(--radius); padding: .6rem 1.1rem;
@@ -519,7 +544,8 @@
 .btn-charge:hover:not(:disabled) { background: rgba(90,160,255,.12); }
 .btn-charge:disabled { opacity: .5; cursor: not-allowed; }
 .btn-decline { background: transparent; color: #ff8a95; border: 1px solid rgba(220,53,69,.4); }
-.btn-accept:disabled, .btn-decline:disabled { opacity: .5; cursor: not-allowed; }
+.xc-cancel { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-accept:disabled, .btn-decline:disabled, .xc-submit:disabled { opacity: .5; cursor: not-allowed; }
 
 @media (max-width: 620px) {
   .field-row, .amount-choice { grid-template-columns: 1fr; }
@@ -639,6 +665,13 @@
 .zelle-qr { margin: 0 0 1.5rem; text-align: center; }
 .zelle-qr img { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto .6rem; border-radius: var(--radius); }
 .zelle-qr p { margin: 0; font-size: .85rem; color: var(--muted); }
+
+/* gratuity the customer chooses at checkout */
+.gratuity { margin: 0 0 1.5rem; }
+.gratuity-label { font-size: .85rem; font-weight: 600; margin-bottom: .5rem; }
+.gratuity .radio-group label { min-width: 0; }
+.gratuity .tip-method { margin-top: .6rem; }
+.tip-note { margin: .6rem 0 0; font-size: .85rem; color: var(--muted); }
 
 /* what is still owed after a deposit, set apart from what is paid now */
 .fee-summary .fee-later { margin-top: .35rem; font-size: .82rem; }

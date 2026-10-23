@@ -3,7 +3,8 @@
 // this page can change the sum.
 
 let quote = null;
-let mode = 'initial';
+let mode = 'initial';          // initial | balance | charge (a damage or cleaning charge after the trip)
+let extraCharge = null;
 let fees = {};                // method -> surcharge rate, straight from the server
 let payments = null;          // Square Web Payments instance
 let card = null;
@@ -41,13 +42,28 @@ const clearPayError = () => { document.getElementById('pay-error').style.display
 const termsAccepted = () => document.getElementById('accept-terms').checked;
 
 function selectedOption() {
-  if (mode === 'balance') return 'full';
+  if (mode !== 'initial') return 'full';
   return document.querySelector('input[name="paymentOption"]:checked').value;
 }
 
+// the customer's gratuity pick; null when the admin set the gratuity in the quote
+function tipChoice() {
+  if (!quote?.gratuity || mode !== 'initial') return null;
+  const percent = Number(document.querySelector('input[name="tipPercent"]:checked')?.value);
+  const option = quote.gratuity.options.find(o => o.percent === percent);
+  if (!option) return null;
+  const method = document.querySelector('input[name="tipMethod"]:checked')?.value || 'online';
+  return { percent, amount: option.amount, method };
+}
+const onlineTip = () => (tipChoice()?.method === 'online' ? tipChoice().amount : 0);
+
+// a deposit never carries gratuity; added online, the whole of it goes with the balance
 function subtotalNow() {
   if (mode === 'balance') return Number(quote.remainingBalance);
-  return selectedOption() === 'deposit' ? Number(quote.depositAmount) : Number(quote.quotedAmount);
+  if (mode === 'charge') return Number(extraCharge.amount);
+  return selectedOption() === 'deposit'
+    ? Number(quote.depositAmount)
+    : round2(Number(quote.quotedAmount) + onlineTip());
 }
 
 const feeRate = (method) => Number(fees[method] || 0);
@@ -68,7 +84,8 @@ async function init() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return fail(data.error || 'This link is not valid.');
     quote = data.quote;
-    mode = data.mode === 'balance' ? 'balance' : 'initial';
+    mode = ['balance', 'charge'].includes(data.mode) ? data.mode : 'initial';
+    extraCharge = data.charge || null;
     fees = data.fees || {};
   } catch (err) {
     return fail('We could not reach our booking system. Please try again shortly.');
@@ -99,7 +116,28 @@ async function init() {
   await buildMethods();
 }
 
+const CHARGE_LABELS = { damage: 'Damage', cleaning: 'Cleaning', other: 'Additional charge' };
+
+// a damage or cleaning charge added after the trip: show that charge, not the booking's price
+function renderCharge() {
+  const rows = [
+    quote.reservationNumber ? ['Reservation', quote.reservationNumber] : null,
+    ['Vehicle', quote.vehicle?.name || quote.vehicle?.type || '—'],
+    ['Trip date', `${quote.date} at ${quote.pickupTime}`],
+    ['Charge', CHARGE_LABELS[extraCharge.kind] || 'Additional charge'],
+    ['Description', extraCharge.description],
+    ['Amount', money(extraCharge.amount)],
+  ].filter(Boolean);
+  document.getElementById('trip-details').innerHTML = rows
+    .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  document.querySelector('h1').textContent = 'Pay an additional charge';
+  document.querySelector('.form-lede').textContent = 'This charge was added to your booking after your trip.';
+  document.querySelector('.amount-choice').hidden = true;
+  document.getElementById('deposit-note').style.display = 'none';
+}
+
 function renderQuote() {
+  if (mode === 'charge') return renderCharge();
   const rows = [
     quote.reservationNumber ? ['Reservation', quote.reservationNumber] : null,
     ['Vehicle', quote.vehicle?.name || quote.vehicle?.type || '—'],
@@ -110,7 +148,10 @@ function renderQuote() {
     ['Passengers', quote.passengers],
     (quote.lineItems || []).length ? ['Base fare', money(quote.baseFare)] : null,
     ...(quote.lineItems || []).map(l => [l.label, money(l.amount)]),
-    ['Total quoted', money(quote.quotedAmount)],
+    [quote.gratuity && !quote.gratuity.method ? 'Total before gratuity' : 'Total quoted', money(quote.quotedAmount)],
+    quote.gratuity?.method
+      ? ['Gratuity', `${quote.gratuity.percent}% (${money(quote.gratuity.amount)}), ${quote.gratuity.method === 'online' ? 'added online' : 'cash to driver'}`]
+      : null,
     mode === 'balance' ? ['Already paid', money(quote.amountPaid)] : null,
   ].filter(Boolean);
 
@@ -126,6 +167,7 @@ function renderQuote() {
     return;
   }
 
+  setupGratuity();
   document.getElementById('full-amount').textContent = money(quote.quotedAmount);
   // a booking set to full payment only has no deposit to offer
   if (!quote.depositAmount) {
@@ -173,7 +215,32 @@ const loadScript = (src) => new Promise((resolve, reject) => {
   document.head.appendChild(s);
 });
 
+// the admin left gratuity to the customer: 15% is picked until they change it
+function setupGratuity() {
+  if (!quote.gratuity) return;
+  const preset = quote.gratuity.defaultPercent;
+  document.getElementById('tip-percent').innerHTML = quote.gratuity.options.map(o => `
+    <label><input type="radio" name="tipPercent" value="${o.percent}"${o.percent === preset ? ' checked' : ''}>
+      <span>${o.percent}% · ${esc(money(o.amount))}</span></label>`).join('');
+  document.querySelectorAll('input[name="tipPercent"], input[name="tipMethod"]')
+    .forEach(el => el.addEventListener('change', updateChoice));
+  document.getElementById('gratuity').hidden = false;
+}
+
+function renderTipNote() {
+  const note = document.getElementById('tip-note');
+  const tip = tipChoice();
+  note.textContent = !tip ? ''
+    : tip.method === 'cash' ? `Please give your driver ${money(tip.amount)} in cash.`
+      : depositing() ? 'Your gratuity is added to the balance, paid on arrival of the vehicle.' : '';
+  note.hidden = !note.textContent;
+}
+
 function updateChoice() {
+  if (mode === 'initial') {
+    document.getElementById('full-amount').textContent = money(round2(Number(quote.quotedAmount) + onlineTip()));
+    renderTipNote();
+  }
   syncMethodAvailability();
   syncPayLabels();
   renderDepositNote();
@@ -184,12 +251,13 @@ function updateChoice() {
 }
 
 // cash cannot hold a date, so it is only offered when the whole sum is being paid
+// cash is only for paying a booking outright before the trip, never a deposit or a later charge
 function syncMethodAvailability() {
-  const depositing = mode === 'initial' && selectedOption() === 'deposit';
+  const noCash = mode === 'charge' || (mode === 'initial' && selectedOption() === 'deposit');
   const cashTab = document.querySelector('.pay-method[data-method="cash"]');
   if (!cashTab) return;
-  cashTab.hidden = depositing;
-  if (depositing && activeMethod === 'cash') selectMethod('card');
+  cashTab.hidden = noCash;
+  if (noCash && activeMethod === 'cash') selectMethod('card');
 }
 
 // every button that takes money says how much; wallet buttons are drawn by their providers
@@ -207,22 +275,30 @@ const depositing = () => mode === 'initial' && selectedOption() === 'deposit';
  * asked for by link, where the fee depends on what the customer pays with then.
  */
 function balanceLater() {
-  const base = round2(Number(quote.quotedAmount) - Number(quote.depositAmount));
+  const base = round2(Number(quote.quotedAmount) - Number(quote.depositAmount) + onlineTip());
   if (activeMethod === 'card') {
     return { how: 'card', amount: round2(base + round2(base * feeRate('card'))) };
   }
   return { how: activeMethod === 'zelle' ? 'zelle' : 'link', amount: base };
 }
 
+// a card is kept for a short while after the trip, so the customer is told before paying
+const CARD_HOLD = 'kept on file until 48 hours after your trip for any damage or cleaning charges';
+
 function renderDepositNote() {
   const note = document.getElementById('deposit-note');
+  if (mode === 'initial' && activeMethod === 'card' && !depositing()) {
+    note.textContent = `Your card will be ${CARD_HOLD}.`;
+    note.style.display = 'block';
+    return;
+  }
   if (!depositing()) {
     note.style.display = 'none';
     return;
   }
   const later = balanceLater();
   if (later.how === 'card') {
-    note.textContent = 'Your card will automatically be charged on arrival of your vehicle.';
+    note.textContent = `Your card will automatically be charged on arrival of your vehicle, and ${CARD_HOLD}.`;
   } else if (later.how === 'zelle') {
     note.innerHTML = `Balance of ${esc(money(later.amount))} is due via Zelle on <strong>arrival of the vehicle</strong>.`;
   } else {
@@ -237,22 +313,32 @@ function renderFeeSummary() {
   const subtotal = subtotalNow();
   const fee = feeFor(activeMethod);
   const rate = feeRate(activeMethod);
+  const tip = tipChoice();
+  // paying in full with gratuity online: show the booking and the gratuity separately
+  const lead = selectedOption() === 'full' && tip?.method === 'online'
+    ? `<div><span>Booking total</span><span>${money(quote.quotedAmount)}</span></div>
+       <div><span>Gratuity (${tip.percent}%)</span><span>${money(tip.amount)}</span></div>`
+    : `<div><span>${mode === 'charge' ? 'Charge' : mode === 'balance' ? 'Balance' : (selectedOption() === 'deposit' ? 'Deposit' : 'Booking total')}</span><span>${money(subtotal)}</span></div>`;
   box.innerHTML = `
-    <div><span>${mode === 'balance' ? 'Balance' : (selectedOption() === 'deposit' ? 'Deposit' : 'Booking total')}</span><span>${money(subtotal)}</span></div>
+    ${lead}
     <div><span>Processing fee${rate ? ` (${esc((rate * 100).toFixed(rate * 100 % 1 ? 2 : 0))}%)` : ''}</span><span>${fee ? money(fee) : 'None'}</span></div>
     <div class="fee-total"><span>You pay</span><span>${money(round2(subtotal + fee))}</span></div>`
-    + (depositing() ? balanceRow(balanceLater()) : '');
+    + (depositing() ? balanceRow(balanceLater()) : '')
+    + (tip?.method === 'cash'
+      ? `<div class="fee-later"><span>Gratuity (${tip.percent}%), cash to driver</span><span>${money(tip.amount)}</span></div>`
+      : '');
   box.hidden = false;
 }
 
 function balanceRow(later) {
+  const tip = onlineTip() > 0;
+  const incl = [tip ? 'gratuity' : '', later.how === 'card' && feeRate('card')
+    ? `${esc(rateLabel('card').replace('+', ''))} processing fee` : ''].filter(Boolean).join(' and ');
   const label = {
-    card: feeRate('card')
-      ? `Balance charged on arrival (incl. ${esc(rateLabel('card').replace('+', ''))} processing fee)`
-      : 'Balance charged on arrival',
+    card: 'Balance charged on arrival',
     zelle: 'Balance due via Zelle on arrival',
     link: 'Balance due on pickup day',
-  }[later.how];
+  }[later.how] + (incl ? ` (incl. ${incl})` : '');
   return `<div class="fee-later"><span>${label}</span><span>${money(later.amount)}</span></div>`;
 }
 
@@ -547,6 +633,8 @@ async function postJson(path, extra) {
       token,
       paymentOption: selectedOption(),
       acceptedTerms: termsAccepted(),
+      // the server prices the gratuity itself; this only says which choice was made
+      ...(tipChoice() ? { gratuityPercent: tipChoice().percent, gratuityMethod: tipChoice().method } : {}),
       ...extra,
     }),
   });
@@ -608,8 +696,10 @@ async function chooseOffline(method) {
     if (!data.success) throw new Error(data.error || 'Could not record your choice.');
 
     hide('pay-state');
-    document.getElementById('done-title').textContent = 'Booking held.';
-    document.getElementById('done-sub').textContent = "We'll confirm your ride once the payment arrives.";
+    document.getElementById('done-title').textContent = mode === 'charge' ? 'Thank you.' : 'Booking held.';
+    document.getElementById('done-sub').textContent = mode === 'charge'
+      ? "We'll confirm once the payment arrives."
+      : "We'll confirm your ride once the payment arrives.";
     document.getElementById('zelle-qr').hidden = method !== 'zelle';
     if (quote.reservationNumber) {
       document.getElementById('zelle-qr-note').innerHTML =
@@ -636,7 +726,9 @@ function succeed(data) {
   const fee = data.processingFee > 0 ? ` (${money(data.subtotal)} plus a ${money(data.processingFee)} processing fee)` : '';
 
   let note;
-  if (mode === 'balance') {
+  if (mode === 'charge') {
+    note = `We've received ${paid}${fee} for the additional charge. A receipt is on its way to your inbox.`;
+  } else if (mode === 'balance') {
     note = `We've received ${paid}${fee}. Your booking is settled in full. A receipt is on its way to your inbox.`;
   } else if (data.balanceByLink) {
     note = `We've taken ${paid}${fee}. ${money(data.remainingBalance)} is due on the day of your trip, and we'll email you a payment link that morning. A receipt is on its way to your inbox.`;

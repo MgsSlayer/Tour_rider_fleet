@@ -279,6 +279,9 @@ function renderCard(q) {
           : money(q.quotedAmount)}</dd>` : ''}
         ${q.paymentMethod ? `<dt>Method</dt><dd>${esc(METHOD_LABELS[q.paymentMethod] || q.paymentMethod)}${
           q.processingFee > 0 ? ` · ${money(q.processingFee)} fee` : ' · no fee'}</dd>` : ''}
+        ${q.gratuity?.customerChooses ? `<dt>Gratuity</dt><dd>${q.gratuity.method
+          ? `${q.gratuity.percent}% (${money(q.gratuity.amount)}), ${q.gratuity.method === 'online' ? 'added online' : 'cash to driver'}`
+          : 'Customer chooses at checkout'}</dd>` : ''}
         ${q.quotedAmount && q.depositRate ? `<dt>Deposit</dt><dd>${q.depositRate < 1
           ? `${Math.round(q.depositRate * 100)}% (${money(round2(q.quotedAmount * q.depositRate))})`
           : 'Full payment only'}</dd>` : ''}
@@ -299,6 +302,8 @@ function renderCard(q) {
       <button class="btn-charge" data-amount="${money(balanceWithCardFee(q))}">Charge balance now (${money(balanceWithCardFee(q))})</button>
     </div>
     <div class="card-msg"></div>` : ''}
+
+    ${q.status === 'paid' ? extraChargesHtml(q) : ''}
 
     ${isPending ? `
     <div class="req-actions">
@@ -355,6 +360,10 @@ function renderCard(q) {
           </label>
           <span class="bd-deposit-note"></span>
         </div>
+        <label class="bd-tip">
+          <input type="checkbox" class="bd-tip-toggle">
+          <span>Let customer choose gratuity (10%, 15% or 20% of the base fare)</span>
+        </label>
       </div>
     </div>
     <div class="req-actions">
@@ -446,6 +455,54 @@ function refreshTotals(card, state) {
   refreshDeposit(card, state);
 }
 
+const isGratuity = (line) => /gratuity/i.test(line.label || '');
+
+const CHARGE_LABELS = { damage: 'Damage', cleaning: 'Cleaning', other: 'Other' };
+
+function chargeState(x) {
+  if (x.status === 'charged') return 'Charged to card';
+  if (x.status === 'paid') return `Paid${x.method ? ` by ${METHOD_LABELS[x.method] || x.method}` : ''}`;
+  if (x.offlineChosenAt) return `Awaiting ${METHOD_LABELS[x.method] || 'Zelle'} payment`;
+  return `Payment link sent${x.failureReason ? ' (card declined)' : ''}`;
+}
+
+// charges added after the trip, and the form to add one; a card on file is charged at once
+function extraChargesHtml(q) {
+  const list = (q.extraCharges || []).map(x => `
+    <div class="xc-item">
+      <div class="xc-what"><strong>${esc(CHARGE_LABELS[x.kind] || 'Other')}</strong> · ${esc(x.description)}</div>
+      <div class="xc-meta">${money(x.total ?? x.amount)} · ${esc(chargeState(x))}</div>
+      ${x.status === 'awaiting_payment' && x.offlineChosenAt
+        ? `<button type="button" class="btn-confirm-charge" data-charge="${esc(x._id)}">Confirm ${esc(METHOD_LABELS[x.method] || 'Zelle')} payment received</button>`
+        : ''}
+    </div>`).join('');
+  const onCard = !!q.squareCardId;
+  return `
+    <div class="xc" data-card="${onCard ? '1' : ''}" data-rate="${esc(q.processingFeeRate || 0)}">
+      ${list ? `<div class="xc-head">Additional charges</div>${list}` : ''}
+      <button type="button" class="btn-xc-open">+ Add damage / cleaning charge</button>
+      <form class="xc-form" hidden>
+        <div class="xc-fields">
+          <select class="xc-kind" aria-label="Charge type">
+            <option value="damage">Damage</option>
+            <option value="cleaning">Cleaning</option>
+            <option value="other">Other</option>
+          </select>
+          <input type="number" class="xc-amount" min="0.01" max="10000" step="0.01" placeholder="Amount ($)" aria-label="Amount in US dollars">
+        </div>
+        <input type="text" class="xc-desc" maxlength="500" placeholder="What happened (the customer will see this)" aria-label="Description">
+        <p class="xc-how">${onCard
+          ? `Card on file until ${esc(new Date(q.cardReleaseAt).toLocaleString())}: it is charged straight away, plus the processing fee.`
+          : 'No card on file: the customer is emailed an invoice with a payment link.'}</p>
+        <div class="req-actions">
+          <button type="submit" class="xc-submit">${onCard ? 'Charge card' : 'Send invoice'}</button>
+          <button type="button" class="xc-cancel">Cancel</button>
+        </div>
+      </form>
+      <div class="xc-msg"></div>
+    </div>`;
+}
+
 // a card balance is charged with the same surcharge its deposit carried
 const balanceWithCardFee = (q) => {
   const base = Number(q.remainingBalance) || 0;
@@ -529,16 +586,29 @@ function wireBreakdown(card) {
     }
   });
 
-  lines.addEventListener('click', e => {
-    if (!e.target.classList.contains('bd-remove')) return;
-    const id = e.target.closest('.bd-line').dataset.id;
+  const removeLine = (id) => {
     state.lines = state.lines.filter(l => l.id !== id);
     // drop references to a line that no longer exists
     state.lines.forEach(l => {
       l.basis = l.basis.filter(b => b !== id);
       if (!l.basis.length) l.basis = ['base'];
     });
+  };
+
+  lines.addEventListener('click', e => {
+    if (!e.target.classList.contains('bd-remove')) return;
+    removeLine(e.target.closest('.bd-line').dataset.id);
     rerender();
+  });
+
+  // the customer picks the gratuity at checkout, so the quote must not carry one too
+  const tipToggle = card.querySelector('.bd-tip-toggle');
+  tipToggle.addEventListener('change', () => {
+    state.customerTip = tipToggle.checked;
+    if (state.customerTip) state.lines.filter(l => isGratuity(l)).forEach(l => removeLine(l.id));
+    card.querySelector('.bd-chip[data-preset="Gratuity"]').hidden = state.customerTip;
+    rerender();
+    card.dispatchEvent(new Event('tip-toggle'));
   });
 
   wireSuggest(card, state, rerender);
@@ -618,7 +688,7 @@ function wireSuggest(card, state, rerender) {
   const applyCandidate = (c) => {
     state.touched = false;         // an explicit pick replaces whatever was there
     state.base = c.baseFare;
-    state.lines = c.lineItems.map(l => ({
+    state.lines = c.lineItems.filter(l => !(state.customerTip && isGratuity(l))).map(l => ({
       id: `l${++state.seq}`, label: l.label, mode: l.mode,
       value: l.value, basis: l.basis || ['base'],
     }));
@@ -626,7 +696,9 @@ function wireSuggest(card, state, rerender) {
     rerender();
   };
 
+  let lastShown = null;
   const render = (res, applyFirst) => {
+    lastShown = res;
     const r = res.route;
     const rep = res.repositioning || {};
     // the suggestion's Routes call already returned the road path, so the map
@@ -643,7 +715,8 @@ function wireSuggest(card, state, rerender) {
       + (r.minimumNote ? `<div class="alert alert-info" style="margin:0 0 .8rem">${esc(r.minimumNote)}</div>` : '');
 
     wrap.innerHTML = res.candidates.map((c, i) => {
-      const total = priceQuote(c.baseFare, c.lineItems.map((l, j) => ({
+      // with the gratuity left to the customer, the suggested totals leave it out too
+      const total = priceQuote(c.baseFare, c.lineItems.filter(l => !(state.customerTip && isGratuity(l))).map((l, j) => ({
         id: `s${i}_${j}`, label: l.label, mode: l.mode, value: l.value, basis: l.basis || ['base'],
       }))).total;
       const p = c.baseFareParts || {};
@@ -795,6 +868,7 @@ function wireSuggest(card, state, rerender) {
   })();
 
   if (go) go.addEventListener('click', () => load(select.value));
+  card.addEventListener('tip-toggle', () => { if (lastShown) render(lastShown, false); });
   if (again) again.addEventListener('click', () => load(select.value || null));
   if (list) {
     list.addEventListener('click', (e) => {
@@ -865,6 +939,87 @@ function wireTripMap(card, btn) {
   });
 }
 
+// damage or cleaning found after the trip: the admin sets the amount and the server bills it
+function wireExtraCharge(card, box) {
+  const form = box.querySelector('.xc-form');
+  const open = box.querySelector('.btn-xc-open');
+  const submit = box.querySelector('.xc-submit');
+  const msg = box.querySelector('.xc-msg');
+  const show = (text, kind) => { msg.innerHTML = `<div class="alert alert-${kind}" style="margin:.8rem 0 0">${esc(text)}</div>`; };
+
+  open.addEventListener('click', () => {
+    form.hidden = false;
+    open.hidden = true;
+    form.querySelector('.xc-desc').focus();
+  });
+  box.querySelector('.xc-cancel').addEventListener('click', () => {
+    form.hidden = true;
+    open.hidden = false;
+    msg.innerHTML = '';
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const kind = form.querySelector('.xc-kind').value;
+    const description = form.querySelector('.xc-desc').value.trim();
+    const amount = round2(Number(form.querySelector('.xc-amount').value));
+    if (!description) return show('Describe the charge. The customer will see it.', 'error');
+    if (!(amount > 0)) return show('Enter an amount.', 'error');
+
+    // a preview only; the server prices the fee itself
+    const onCard = box.dataset.card === '1';
+    const rate = Number(box.dataset.rate) || 0;
+    const fee = onCard ? round2(amount * rate) : 0;
+    const confirmed = await openModal({
+      title: onCard ? 'Charge the card on file?' : 'Send this invoice?',
+      message: onCard
+        ? `The card on file will be charged now and ${card.dataset.email} emailed an invoice.`
+        : `${card.dataset.email} will be emailed an invoice with a payment link.`,
+      details: [
+        { label: 'Charge', value: CHARGE_LABELS[kind] },
+        { label: 'Description', value: description },
+        { label: 'Amount', value: money(amount) },
+        ...(onCard && fee ? [{ label: `Processing fee (${Math.round(rate * 100)}%)`, value: money(fee) }] : []),
+        ...(onCard ? [{ label: 'Total', value: money(round2(amount + fee)), total: true }] : []),
+      ],
+      confirmLabel: onCard ? 'Charge card' : 'Send invoice',
+    });
+    if (!confirmed) return;
+
+    submit.disabled = true;
+    try {
+      const res = await api(`/api/quotes/${card.dataset.id}/charges`, {
+        method: 'POST',
+        body: JSON.stringify({ kind, description, amount }),
+      });
+      if (res.charged) show(`Charged ${money(res.charge.total)} to the card on file. The customer has been emailed an invoice.`, 'ok');
+      else if (res.cardError) show(`The card was declined (${res.cardError}). The customer has been emailed an invoice with a payment link instead.`, 'error');
+      else if (res.emailError) show(`Saved, but the invoice email could not be sent: ${res.emailError}`, 'error');
+      else show('The customer has been emailed an invoice with a payment link.', 'ok');
+      form.hidden = true;
+      setTimeout(loadRequests, 2500);
+    } catch (err) {
+      show(err.message, 'error');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  box.querySelectorAll('.btn-confirm-charge').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!window.confirm('Confirm that this payment has actually arrived?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/quotes/${card.dataset.id}/charges/${btn.dataset.charge}/confirm-offline`, { method: 'PATCH' });
+        loadRequests();
+      } catch (err) {
+        show(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 // money that arrived by Zelle or cash is only known to the admin
 function wireConfirmOffline(btn, id, msg) {
   btn.addEventListener('click', async () => {
@@ -908,6 +1063,9 @@ function wireCards() {
     const charge = card.querySelector('.btn-charge');
     if (charge) wireCharge(card, charge);
 
+    const extra = card.querySelector('.xc');
+    if (extra) wireExtraCharge(card, extra);
+
     const accept = card.querySelector('.btn-accept');
     const decline = card.querySelector('.btn-decline');
     if (!accept) return;
@@ -937,6 +1095,7 @@ function wireCards() {
         { label: 'Base fare', value: money(baseFare) },
         ...priceQuote(baseFare, state.lines).priced.map(l => ({ label: l.label, value: money(l.amount) })),
         { label: 'Total', value: money(state.total), total: true },
+        ...(state.customerTip ? [{ label: 'Gratuity', value: 'Customer chooses 10–20%' }] : []),
         depositPercent === 100
           ? { label: 'Deposit', value: 'Full payment only' }
           : { label: `Deposit (${depositPercent}%)`, value: money(round2(state.total * depositPercent / 100)) },
@@ -958,6 +1117,7 @@ function wireCards() {
           body: JSON.stringify({
             vehicleSn: state.vehicleSn || undefined,
             depositPercent,
+            customerGratuity: !!state.customerTip,
             baseFare,
             lineItems: state.lines.map(l => ({
               id: l.id,
