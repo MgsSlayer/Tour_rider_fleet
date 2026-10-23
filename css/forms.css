@@ -448,6 +448,9 @@
 
 .bd-tip { display: flex; align-items: center; gap: .55rem; margin-top: .8rem; font-size: .85rem; color: var(--muted); cursor: pointer; }
 .bd-tip input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.bd-tip-basis { margin: .5rem 0 0 1.6rem; }
+.bd-tip-note { margin: .35rem 0 0 1.6rem; font-size: .8rem; color: var(--muted); }
+.bd-tip-note:empty { display: none; }
 
 /* charges added after the trip */
 .xc { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }

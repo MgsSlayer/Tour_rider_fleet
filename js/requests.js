@@ -362,8 +362,10 @@ function renderCard(q) {
         </div>
         <label class="bd-tip">
           <input type="checkbox" class="bd-tip-toggle">
-          <span>Let customer choose gratuity (10%, 15% or 20% of the base fare)</span>
+          <span>Let customer choose gratuity</span>
         </label>
+        <div class="bd-tip-basis bd-basis" hidden></div>
+        <div class="bd-tip-note"></div>
       </div>
     </div>
     <div class="req-actions">
@@ -399,6 +401,34 @@ function priceQuote(baseFare, lines) {
   return { base, priced, total: round2(base + priced.reduce((s, l) => s + l.amount, 0)) };
 }
 
+// what the customer's 10, 15 or 20% is worked out on: the base fare and/or any line in the quote
+function renderTipBasis(card, state) {
+  const box = card.querySelector('.bd-tip-basis');
+  if (!box) return;
+  box.hidden = !state.customerTip;
+  if (!state.customerTip) return;
+  // a line that has been removed can no longer be part of it
+  state.tipBasis = state.tipBasis.filter(id => id === 'base' || state.lines.some(l => l.id === id));
+  if (!state.tipBasis.length) state.tipBasis = ['base'];
+  const options = [{ id: 'base', label: 'Base fare' }, ...state.lines.map(l => ({ id: l.id, label: l.label || 'Untitled' }))];
+  box.innerHTML = `of ${options.map(o => `
+    <label><input type="checkbox" value="${esc(o.id)}"${state.tipBasis.includes(o.id) ? ' checked' : ''}> ${esc(o.label)}</label>`).join('')}`;
+}
+
+const tipBasisLabel = (state) => state.tipBasis
+  .map(id => (id === 'base' ? 'base fare' : (state.lines.find(l => l.id === id)?.label || 'Untitled')))
+  .join(' + ');
+
+// the three amounts the customer will be offered, for the admin's eye
+function refreshTipNote(card, state) {
+  const note = card.querySelector('.bd-tip-note');
+  if (!note) return;
+  if (!state.customerTip || !Number(state.base)) { note.textContent = ''; return; }
+  const { base, priced } = priceQuote(state.base, state.lines);
+  const basis = state.tipBasis.reduce((sum, id) => sum + (id === 'base' ? base : (priced.find(l => l.id === id)?.amount || 0)), 0);
+  note.textContent = [10, 15, 20].map(p => `${p}% ${money(round2(basis * p / 100))}`).join(' · ');
+}
+
 function renderLines(card, state) {
   const wrap = card.querySelector('.bd-lines');
   const { base, priced, total } = priceQuote(state.base, state.lines);
@@ -428,6 +458,7 @@ function renderLines(card, state) {
     </div>`;
   }).join('');
 
+  renderTipBasis(card, state);
   refreshTotals(card, state);
 }
 
@@ -453,6 +484,7 @@ function refreshTotals(card, state) {
   card.querySelector('.bd-total').classList.toggle('empty', !base);
   state.total = total;
   refreshDeposit(card, state);
+  refreshTipNote(card, state);
 }
 
 const isGratuity = (line) => /gratuity/i.test(line.label || '');
@@ -530,7 +562,7 @@ function refreshDeposit(card, state) {
 }
 
 function wireBreakdown(card) {
-  const state = { base: '', lines: [], total: 0, seq: 0 };
+  const state = { base: '', lines: [], total: 0, seq: 0, tipBasis: ['base'] };
   const rerender = () => renderLines(card, state);
 
   const baseInput = card.querySelector('.quote-input');
@@ -609,6 +641,13 @@ function wireBreakdown(card) {
     card.querySelector('.bd-chip[data-preset="Gratuity"]').hidden = state.customerTip;
     rerender();
     card.dispatchEvent(new Event('tip-toggle'));
+  });
+
+  card.querySelector('.bd-tip-basis').addEventListener('change', () => {
+    const picked = [...card.querySelectorAll('.bd-tip-basis input:checked')].map(cb => cb.value);
+    state.tipBasis = picked.length ? picked : ['base'];
+    renderTipBasis(card, state);
+    refreshTotals(card, state);
   });
 
   wireSuggest(card, state, rerender);
@@ -1095,7 +1134,7 @@ function wireCards() {
         { label: 'Base fare', value: money(baseFare) },
         ...priceQuote(baseFare, state.lines).priced.map(l => ({ label: l.label, value: money(l.amount) })),
         { label: 'Total', value: money(state.total), total: true },
-        ...(state.customerTip ? [{ label: 'Gratuity', value: 'Customer chooses 10–20%' }] : []),
+        ...(state.customerTip ? [{ label: 'Gratuity', value: `Customer chooses 10–20% of ${tipBasisLabel(state)}` }] : []),
         depositPercent === 100
           ? { label: 'Deposit', value: 'Full payment only' }
           : { label: `Deposit (${depositPercent}%)`, value: money(round2(state.total * depositPercent / 100)) },
@@ -1118,6 +1157,7 @@ function wireCards() {
             vehicleSn: state.vehicleSn || undefined,
             depositPercent,
             customerGratuity: !!state.customerTip,
+            gratuityBasis: state.customerTip ? state.tipBasis : undefined,
             baseFare,
             lineItems: state.lines.map(l => ({
               id: l.id,
