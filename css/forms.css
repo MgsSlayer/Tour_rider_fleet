@@ -135,6 +135,10 @@
   background: #0f0f0f; border: 1px solid var(--border); border-radius: var(--radius);
 }
 .modal-details div.total + div { margin-top: .3rem; }
+/* a long value wraps on its own side instead of running into its label */
+.modal-details > div { gap: 1rem; }
+.modal-details > div > span:first-child { flex-shrink: 0; }
+.modal-details > div > span:last-child { text-align: right; }
 .modal-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.2rem; }
 .modal-cancel, .modal-confirm {
   border-radius: var(--radius); padding: .6rem 1.2rem;
