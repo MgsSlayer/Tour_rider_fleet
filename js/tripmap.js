@@ -1,13 +1,30 @@
-// Shared trip map: plots pick-up, stop-over and drop-off on one map.
+// Shared trip map: plots pick-up, stop-overs and drop-off on one map.
 //
 // Dynamic Maps bills per map load, so a map is only ever created when it is
 // actually going to be seen — never eagerly on page load or per dashboard card.
 
+// A to B, with the stops numbered in between
 const TRIP_PINS = {
-  pickup:   { label: 'A', title: 'Pick-up',   colour: '#0f8a4d' },
-  stopover: { label: 'B', title: 'Stop over', colour: '#f5a623' },
-  dropoff:  { label: 'C', title: 'Drop-off',  colour: '#b42318' },
+  pickup:  { label: 'A', title: 'Pick-up',  colour: '#0f8a4d' },
+  dropoff: { label: 'B', title: 'Drop-off', colour: '#b42318' },
 };
+const STOP_COLOUR = '#f5a623';
+
+// stops are keyed stop1, stop2…; bookings from before multiple stops use `stopover`
+const isStopKey = (k) => k === 'stopover' || /^stop\d+$/.test(k);
+const stopNumber = (k) => Number(k.slice(4)) || 1;
+
+function pinFor(key) {
+  if (TRIP_PINS[key]) return TRIP_PINS[key];
+  const n = stopNumber(key);
+  return { label: String(n), title: `Stop ${n}`, colour: STOP_COLOUR };
+}
+
+// pick-up, the stops in order, then drop-off
+function orderedKeys(points) {
+  const stops = Object.keys(points).filter(isStopKey).sort((a, b) => stopNumber(a) - stopNumber(b));
+  return ['pickup', ...stops, 'dropoff'];
+}
 
 // muted styling so the dark UI doesn't fight a bright default map
 const DARK_STYLE = [
@@ -35,7 +52,7 @@ function pinIcon(colour, label) {
 
 /** Same points as last time? Then the route needn't be recomputed. */
 function pointsKey(points) {
-  return ['pickup', 'stopover', 'dropoff']
+  return orderedKeys(points)
     .map(k => (points[k] ? `${points[k].lat.toFixed(5)},${points[k].lng.toFixed(5)}` : '-'))
     .join('|');
 }
@@ -48,7 +65,7 @@ function pointsKey(points) {
  * request, and never more than once per unique set of points.
  */
 function drawRoute(store, points, encoded) {
-  const legs = ['pickup', 'stopover', 'dropoff'].map(k => points[k]).filter(Boolean);
+  const legs = orderedKeys(points).map(k => points[k]).filter(Boolean);
   if (legs.length < 2) {
     if (store.route) { store.route.setMap(null); store.route = null; }
     return;
@@ -82,7 +99,7 @@ function drawRoute(store, points, encoded) {
 
 /**
  * Creates (or reuses) a map inside `el` and plots whichever points are given.
- * `points` is { pickup, stopover, dropoff } of {lat,lng} or null.
+ * `points` is { pickup, stop1…stop5, dropoff } of {lat,lng} or null.
  */
 function renderTripMap(el, points, store = {}, encodedPolyline = null) {
   if (!el || !window.google?.maps) return store;
@@ -113,9 +130,10 @@ function renderTripMap(el, points, store = {}, encodedPolyline = null) {
 
   const bounds = new google.maps.LatLngBounds();
   plotted.forEach(([key, pos]) => {
-    const pin = TRIP_PINS[key];
+    const pin = pinFor(key);
     if (store.markers[key]) {
       store.markers[key].setPosition(pos);
+      store.markers[key].setTitle(pin.title);
     } else {
       store.markers[key] = new google.maps.Marker({
         map: store.map,

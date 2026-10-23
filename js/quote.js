@@ -31,8 +31,10 @@ async function init() {
   }
 
   form.querySelectorAll('input[name="tripType"]')
-    .forEach(el => el.addEventListener('change', syncStopover));
-  syncStopover();
+    .forEach(el => el.addEventListener('change', syncTripType));
+  document.getElementById('add-stop').addEventListener('click', addStop);
+  wireRoundTripDropoff();
+  syncTripType();
 
   ['pickupTime', 'finalDropoffTime'].forEach((id) => {
     document.getElementById(id).addEventListener('input', syncMinTrip);
@@ -61,47 +63,130 @@ function tripMinutes(pickup, dropoff) {
   return b > a ? b - a : b - a + 24 * 60;
 }
 
-// the rule is only worth stating while it is being broken
+// the rule is only worth stating while it is being broken; the custom quote page has no minimum
 function syncMinTrip() {
+  const warning = document.getElementById('min-trip-warning');
+  if (!warning) return;
   const pickup = document.getElementById('pickupTime').value;
   const dropoff = document.getElementById('finalDropoffTime').value;
   const booked = pickup && dropoff ? tripMinutes(pickup, dropoff) : null;
-  document.getElementById('min-trip-warning').hidden = booked === null || booked >= MIN_TRIP_HOURS * 60;
+  warning.hidden = booked === null || booked >= MIN_TRIP_HOURS * 60;
 }
 
-const ADDRESS_FIELDS = ['pickupAddress', 'stopoverAddress', 'dropoffAddress'];
+const ADDRESS_FIELDS = ['pickupAddress', 'dropoffAddress'];
 
 // coordinates come free with the autocomplete pick; they are sent with the quote
 // so the admin map never has to geocode the addresses again
-const tripCoords = { pickup: null, stopover: null, dropoff: null };
+const tripCoords = { pickup: null, dropoff: null };
+const stopCoords = new Map();   // stop input id -> {lat,lng}
 const tripMapStore = {};
-const COORD_KEY = { pickupAddress: 'pickup', stopoverAddress: 'stopover', dropoffAddress: 'dropoff' };
+const COORD_KEY = { pickupAddress: 'pickup', dropoffAddress: 'dropoff' };
+
+// mirrors the server limit
+const MAX_STOPS = 5;
+let stopSeq = 0;
+
+const isRoundTrip = () => document.querySelector('input[name="tripType"]:checked')?.value === 'roundtrip';
+const stopInputs = () => [...document.querySelectorAll('#stops input')];
+
+// a round trip ends where it began, so drop-off follows pick-up until the customer changes it
+let dropoffEdited = false;
+
+function mirrorPickup() {
+  if (!isRoundTrip() || dropoffEdited) return;
+  document.getElementById('dropoffAddress').value = document.getElementById('pickupAddress').value;
+  tripCoords.dropoff = tripCoords.pickup;
+}
+
+function wireRoundTripDropoff() {
+  const pickup = document.getElementById('pickupAddress');
+  const dropoff = document.getElementById('dropoffAddress');
+  pickup.addEventListener('change', () => { mirrorPickup(); drawTripMap(); });
+  // clearing the drop-off hands it back to the pick-up
+  dropoff.addEventListener('change', () => {
+    dropoffEdited = dropoff.value.trim() !== '' && dropoff.value !== pickup.value;
+  });
+}
 
 function onAddressPicked(fieldId, coords) {
   const key = COORD_KEY[fieldId];
   if (!key) return;
   tripCoords[key] = coords;
+  if (key === 'pickup') mirrorPickup();
+  if (key === 'dropoff') {
+    dropoffEdited = document.getElementById('dropoffAddress').value !== document.getElementById('pickupAddress').value;
+  }
   drawTripMap();
+}
+
+// pick-up, the stops in order, then drop-off: the keys the trip map understands
+function tripPoints() {
+  const points = { pickup: tripCoords.pickup, dropoff: tripCoords.dropoff };
+  stopInputs().forEach((input, i) => { points[`stop${i + 1}`] = stopCoords.get(input.id) || null; });
+  return points;
 }
 
 function drawTripMap() {
   const field = document.getElementById('trip-map-field');
   const el = document.getElementById('trip-map');
   if (!field || !el) return;
-  const any = Object.values(tripCoords).some(Boolean);
+  const points = tripPoints();
+  const any = Object.values(points).some(Boolean);
   field.hidden = !any;
-  if (any) renderTripMap(el, tripCoords, tripMapStore);
+  if (any) renderTripMap(el, points, tripMapStore);
 }
 
-// a stop-over only makes sense on a round trip
-function syncStopover() {
-  const isRoundTrip = document.querySelector('input[name="tripType"]:checked')?.value === 'roundtrip';
-  document.getElementById('stopover-field').hidden = !isRoundTrip;
-  // clear it so a hidden value can't be submitted
-  if (!isRoundTrip) {
-    document.getElementById('stopoverAddress').value = '';
-    if (typeof tripCoords !== 'undefined') { tripCoords.stopover = null; drawTripMap(); }
+// a copied drop-off is only right for a round trip; any other trip type starts it blank
+function syncTripType() {
+  const pickup = document.getElementById('pickupAddress');
+  const dropoff = document.getElementById('dropoffAddress');
+  if (isRoundTrip()) {
+    if (!dropoff.value.trim()) dropoffEdited = false;
+    mirrorPickup();
+  } else if (!dropoffEdited && dropoff.value && dropoff.value === pickup.value) {
+    dropoff.value = '';
+    tripCoords.dropoff = null;
   }
+  drawTripMap();
+}
+
+function addStop() {
+  if (stopInputs().length >= MAX_STOPS) return;
+  const id = `stop-${++stopSeq}`;
+  const row = document.createElement('div');
+  row.className = 'stop-row';
+  row.innerHTML = `
+    <label for="${id}"></label>
+    <div class="stop-input">
+      <input type="text" id="${id}" maxlength="200" autocomplete="off">
+      <button type="button" class="stop-remove">&times;</button>
+    </div>`;
+  document.getElementById('stops').appendChild(row);
+
+  const input = row.querySelector('input');
+  row.querySelector('.stop-remove').addEventListener('click', () => {
+    row.remove();
+    stopCoords.delete(id);
+    syncStops();
+    drawTripMap();
+  });
+  // suggestions attach once the Maps script is in; the field works without them
+  loadGoogleMaps().then((ok) => {
+    if (ok) attachAddressAutocomplete(input, (coords) => { stopCoords.set(id, coords); drawTripMap(); });
+  });
+
+  syncStops();
+  input.focus();
+}
+
+// numbers the stops in route order and hides the button at the limit
+function syncStops() {
+  stopInputs().forEach((input, i) => {
+    const row = input.closest('.stop-row');
+    row.querySelector('label').textContent = `Stop-over ${i + 1}`;
+    row.querySelector('.stop-remove').setAttribute('aria-label', `Remove stop-over ${i + 1}`);
+  });
+  document.getElementById('add-stop').hidden = stopInputs().length >= MAX_STOPS;
 }
 
 function renderChosen(v) {
@@ -168,7 +253,7 @@ async function onSubmit(e) {
   }
 
   const booked = tripMinutes(val('pickupTime'), val('finalDropoffTime'));
-  if (booked === null || booked < MIN_TRIP_HOURS * 60) {
+  if (!OPEN_REQUEST && (booked === null || booked < MIN_TRIP_HOURS * 60)) {
     return showAlert(`Trips run for a minimum of ${MIN_TRIP_HOURS} hours. Please adjust your pick-up or drop-off time.`);
   }
 
@@ -187,14 +272,16 @@ async function onSubmit(e) {
     finalDropoffTime: val('finalDropoffTime'),
     passengers,
     pickupAddress: val('pickupAddress'),
-    stopoverAddress: val('stopoverAddress'),
+    // blank stop fields are left out rather than sent
+    stopovers: stopInputs()
+      .map((input) => ({ address: input.value.trim(), coords: stopCoords.get(input.id) || null }))
+      .filter((stop) => stop.address),
     dropoffAddress: val('dropoffAddress'),
     name: val('name'),
     phone: val('phone'),
     email: val('email'),
     message: val('message'),
     pickupCoords: tripCoords.pickup,
-    stopoverCoords: tripCoords.stopover,
     dropoffCoords: tripCoords.dropoff,
   };
 

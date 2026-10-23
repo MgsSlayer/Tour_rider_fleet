@@ -105,7 +105,7 @@ function renderQuote() {
     ['Vehicle', quote.vehicle?.name || quote.vehicle?.type || '—'],
     ['Date', `${quote.date} at ${quote.pickupTime}`],
     ['Pick-up', quote.pickupAddress],
-    quote.stopoverAddress ? ['Stop over', quote.stopoverAddress] : null,
+    ...(quote.stopovers || []).map((stop, i, all) => [all.length > 1 ? `Stop ${i + 1}` : 'Stop over', stop]),
     ['Drop-off', quote.dropoffAddress],
     ['Passengers', quote.passengers],
     (quote.lineItems || []).length ? ['Base fare', money(quote.baseFare)] : null,

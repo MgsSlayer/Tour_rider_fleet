@@ -86,9 +86,10 @@
         <label for="pickupAddress">Pick-up address <span class="req">*</span></label>
         <input type="text" id="pickupAddress" name="pickupAddress" maxlength="200" required autocomplete="off">
       </div>
-      <div class="field" id="stopover-field">
-        <label for="stopoverAddress">Stop-over address</label>
-        <input type="text" id="stopoverAddress" name="stopoverAddress" maxlength="200" autocomplete="off">
+      <!-- stop-overs sit between pick-up and drop-off, in route order -->
+      <div class="field" id="stops-field">
+        <div id="stops"></div>
+        <button type="button" class="add-stop" id="add-stop">+ Add stop-over</button>
       </div>
       <div class="field">
         <label for="dropoffAddress">Drop-off address <span class="req">*</span></label>
@@ -100,7 +101,7 @@
         <div id="trip-map" class="trip-map"></div>
         <div class="map-key">
           <span><i class="pin pin-a"></i> Pick-up</span>
-          <span><i class="pin pin-b"></i> Stop over</span>
+          <span><i class="pin pin-b"></i> Stop-overs</span>
           <span><i class="pin pin-c"></i> Drop-off</span>
           <span><i class="pin pin-route"></i> Route</span>
         </div>

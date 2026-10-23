@@ -179,6 +179,12 @@ async function loadVehicleRates() {
   return vehicleRates;
 }
 
+// stops in route order; bookings from before multiple stops kept one stopoverAddress
+function tripStops(q) {
+  if (q.stopovers?.length) return q.stopovers.map(s => ({ address: s.address, coords: s.coords }));
+  return q.stopoverAddress ? [{ address: q.stopoverAddress, coords: q.coords?.stopover }] : [];
+}
+
 async function loadRequests() {
   const list = document.getElementById('list');
   list.innerHTML = '<div class="state-msg">Loading…</div>';
@@ -198,10 +204,13 @@ async function loadRequests() {
       return;
     }
     quotes.forEach((q) => {
-      cardCoords[q._id] = q.coords || {};
-      cardAddresses[q._id] = {
-        pickup: q.pickupAddress, stopover: q.stopoverAddress, dropoff: q.dropoffAddress,
-      };
+      // keyed the way the trip map reads them: pickup, stop1…stop5, dropoff
+      cardCoords[q._id] = { pickup: q.coords?.pickup, dropoff: q.coords?.dropoff };
+      cardAddresses[q._id] = { pickup: q.pickupAddress, dropoff: q.dropoffAddress };
+      tripStops(q).forEach((stop, i) => {
+        cardCoords[q._id][`stop${i + 1}`] = stop.coords;
+        cardAddresses[q._id][`stop${i + 1}`] = stop.address;
+      });
       if (q.kind === 'open') cardMatching[q._id] = q.matching || null;
     });
     list.innerHTML = quotes.map(renderCard).join('');
@@ -246,7 +255,7 @@ function renderCard(q) {
       <div class="trip-map" hidden></div>
       <div class="map-key" hidden>
         <span><i class="pin pin-a"></i> Pick-up</span>
-        ${q.coords?.stopover ? '<span><i class="pin pin-b"></i> Stop over</span>' : ''}
+        ${tripStops(q).length ? '<span><i class="pin pin-b"></i> Stop-overs</span>' : ''}
         <span><i class="pin pin-c"></i> Drop-off</span>
         <span><i class="pin pin-route"></i> Route</span>
       </div>
@@ -258,7 +267,8 @@ function renderCard(q) {
         <dt>Trip</dt><dd>${esc(q.tripType)} · ${q.passengers} passengers</dd>
         <dt>Date</dt><dd>${esc(q.date)} ${esc(q.pickupTime)} → ${esc(q.finalDropoffTime)}</dd>
         <dt>Pick-up</dt><dd>${esc(q.pickupAddress)}</dd>
-        ${q.stopoverAddress ? `<dt>Stop over</dt><dd>${esc(q.stopoverAddress)}</dd>` : ''}
+        ${tripStops(q).map((stop, i, all) =>
+          `<dt>${all.length > 1 ? `Stop ${i + 1}` : 'Stop over'}</dt><dd>${esc(stop.address)}</dd>`).join('')}
         <dt>Drop-off</dt><dd>${esc(q.dropoffAddress)}</dd>
         ${q.message ? `<dt>Message</dt><dd>${esc(q.message)}</dd>` : ''}
         <dt>Received</dt><dd>${esc(created)}</dd>
@@ -627,9 +637,10 @@ function wireSuggest(card, state, rerender) {
     // stays for the loading and failure states only
     note.textContent = '';
     note.classList.remove('err');
-    repo.innerHTML = rep.note
+    repo.innerHTML = (rep.note
       ? `<div class="alert alert-${rep.charged ? 'info' : 'ok'}" style="margin:0 0 .8rem">${esc(rep.note)}</div>`
-      : '';
+      : '')
+      + (r.minimumNote ? `<div class="alert alert-info" style="margin:0 0 .8rem">${esc(r.minimumNote)}</div>` : '');
 
     wrap.innerHTML = res.candidates.map((c, i) => {
       const total = priceQuote(c.baseFare, c.lineItems.map((l, j) => ({
@@ -637,9 +648,10 @@ function wireSuggest(card, state, rerender) {
       }))).total;
       const p = c.baseFareParts || {};
       // reads as the sum it is: inputs first, result last
+      const hrs = `${p.hours} h${p.minimumApplied ? ' minimum' : ''}`;
       const madeOf = p.repositioning > 0
-        ? `${p.hours} h × ${money(p.hourlyRate)} + ${money(p.repositioning)} repositioning = ${money(c.baseFare)}`
-        : `${p.hours} h × ${money(p.hourlyRate)} = ${money(c.baseFare)}`;
+        ? `${hrs} × ${money(p.hourlyRate)} + ${money(p.repositioning)} repositioning = ${money(c.baseFare)}`
+        : `${hrs} × ${money(p.hourlyRate)} = ${money(c.baseFare)}`;
       return `
       <button type="button" class="bd-candidate${i === 0 && applyFirst ? ' chosen' : ''}" data-i="${i}">
         <span class="bc-label">${esc(c.label)} · ${money(c.hourlyRate)}/h</span>
@@ -801,7 +813,7 @@ function wireSuggest(card, state, rerender) {
 async function resolveCoords(id) {
   const have = cardCoords[id] || {};
   const addrs = cardAddresses[id] || {};
-  const missing = ['pickup', 'stopover', 'dropoff']
+  const missing = Object.keys(addrs)
     .filter(k => addrs[k] && !Number.isFinite(have[k]?.lat));
   if (!missing.length) return have;
 
