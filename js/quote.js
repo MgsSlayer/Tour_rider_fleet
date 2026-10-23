@@ -146,7 +146,13 @@ function syncDropoffTime() {
   input.required = !hide;
   // cleared so a hidden time is never sent
   if (hide) input.value = '';
-  document.getElementById('times-row').classList.toggle('single', hide);
+
+  // a one-way trip only asks once a stop is added, when the customer is already down at the
+  // addresses, so it appears under the drop-off address; otherwise it sits beside the pick-up time
+  const timesRow = document.getElementById('times-row');
+  if (oneWay) document.getElementById('dropoffAddress').closest('.field').after(field);
+  else timesRow.appendChild(field);
+  timesRow.classList.toggle('single', oneWay);
   syncMinTrip();
 }
 
