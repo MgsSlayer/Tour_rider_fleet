@@ -298,7 +298,7 @@ function renderDepositNote() {
   }
   const later = balanceLater();
   if (later.how === 'card') {
-    note.textContent = `Your card will automatically be charged on arrival of your vehicle, and ${CARD_HOLD}.`;
+    note.textContent = 'Your card will automatically be charged on arrival of your vehicle.';
   } else if (later.how === 'zelle') {
     note.innerHTML = `Balance of ${esc(money(later.amount))} is due via Zelle on <strong>arrival of the vehicle</strong>.`;
   } else {
