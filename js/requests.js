@@ -6,6 +6,7 @@ const money = (n) => `$${Number(n).toFixed(2)}`;
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // pre-fills each new quote's deposit; the server sends its default with the list
 let defaultDepositPercent = 20;
+let cardFeeRate = 0.04;
 
 function esc(str) {
   return String(str ?? '')
@@ -147,7 +148,7 @@ async function onLogin(e) {
 // sheet rates, keyed by S/N — fetched once and reused for suggestions
 let vehicleRates = null;
 const METHOD_LABELS = {
-  card: 'Card', apple_pay: 'Apple Pay', google_pay: 'Google Pay', cash_app: 'Cash App Pay',
+  card: 'Card', apple_pay: 'Apple Pay', google_pay: 'Google Pay', cash_app: 'Cash App',
   paypal: 'PayPal', venmo: 'Venmo', zelle: 'Zelle', cash: 'Cash',
 };
 
@@ -191,13 +192,14 @@ async function loadRequests() {
   const status = document.getElementById('status-filter').value;
 
   try {
-    const [{ quotes, depositPercent }] = await Promise.all([
+    const [{ quotes, depositPercent, cardFeeRate: rate }] = await Promise.all([
       api(`/api/quotes${status ? `?status=${status}` : ''}`),
       loadVehicleRates(),
     ]);
     if (depositPercent) defaultDepositPercent = depositPercent;
+    if (Number.isFinite(rate)) cardFeeRate = rate;
     document.getElementById('dash-sub').textContent =
-      `${quotes.length} ${status || 'total'} request${quotes.length === 1 ? '' : 's'}`;
+      `${quotes.length} ${status ? (STAGE_LABELS[status] || status) : 'total'} request${quotes.length === 1 ? '' : 's'}`;
 
     if (!quotes.length) {
       list.innerHTML = '<div class="state-msg">Nothing here right now.</div>';
@@ -246,7 +248,7 @@ function renderCard(q) {
           <div class="cv-meta">${esc(q.customer.email)}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
         </div>
       </div>
-      <span class="badge badge-${q.status}">${q.status}</span>
+      <span class="badge badge-${stageOf(q)}">${STAGE_LABELS[stageOf(q)] || esc(q.status)}</span>
     </div>
 
     ${hasTrip ? `
@@ -272,20 +274,16 @@ function renderCard(q) {
         <dt>Drop-off</dt><dd>${esc(q.dropoffAddress)}</dd>
         ${q.message ? `<dt>Message</dt><dd>${esc(q.message)}</dd>` : ''}
         <dt>Received</dt><dd>${esc(created)}</dd>
-        ${q.quotedAmount ? `<dt>Quoted</dt><dd>${(q.lineItems || []).length
-          ? `<div class="bd-summary"><div><span>Base fare</span><span>${money(q.baseFare)}</span></div>`
-            + q.lineItems.map(l => `<div><span>${esc(l.label)}</span><span>${money(l.amount)}</span></div>`).join('')
-            + `<div class="total"><span>Total</span><span>${money(q.quotedAmount)}</span></div></div>`
-          : money(q.quotedAmount)}</dd>` : ''}
+        ${q.quotedAmount ? `<dt>Quoted</dt><dd>${quotedSummary(q)}</dd>` : ''}
         ${q.paymentMethod ? `<dt>Method</dt><dd>${esc(METHOD_LABELS[q.paymentMethod] || q.paymentMethod)}${
           q.processingFee > 0 ? ` · ${money(q.processingFee)} fee` : ' · no fee'}</dd>` : ''}
         ${q.gratuity?.customerChooses ? `<dt>Gratuity</dt><dd>${q.gratuity.method
           ? `${q.gratuity.percent}% (${money(q.gratuity.amount)}), ${q.gratuity.method === 'online' ? 'added online' : 'cash to driver'}`
           : 'Customer chooses at checkout'}</dd>` : ''}
         ${q.quotedAmount && q.depositRate ? `<dt>Deposit</dt><dd>${q.depositRate < 1
-          ? `${Math.round(q.depositRate * 100)}% (${money(round2(q.quotedAmount * q.depositRate))})`
+          ? `${Math.round(q.depositRate * 100)}%${q.figures?.deposit ? ` (${money(q.figures.deposit)} by card)` : ''}`
           : 'Full payment only'}</dd>` : ''}
-        ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.remainingBalance > 0 && !q.remainingBalancePaid ? ` (${money(q.remainingBalance)} balance outstanding)` : ''}</dd>` : ''}
+        ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.figures?.balanceDue ? ` (${money(q.figures.balanceDue)} balance outstanding)` : ''}</dd>` : ''}
         ${q.declineReason ? `<dt>Declined</dt><dd>${esc(q.declineReason)}</dd>` : ''}
       </dl>
     </div>
@@ -299,7 +297,7 @@ function renderCard(q) {
     ${q.status === 'paid' && q.paymentOption === 'deposit'
         && q.remainingBalance > 0 && !q.remainingBalancePaid ? `
     <div class="req-actions">
-      <button class="btn-charge" data-amount="${money(balanceWithCardFee(q))}">Charge balance now (${money(balanceWithCardFee(q))})</button>
+      <button class="btn-charge" data-amount="${money(q.figures.balanceDue)}">Charge balance now (${money(q.figures.balanceDue)})</button>
     </div>
     <div class="card-msg"></div>` : ''}
 
@@ -344,7 +342,7 @@ function renderCard(q) {
           <span>Add:</span>
           <button type="button" class="bd-chip" data-preset="Tolls">Tolls</button>
           <button type="button" class="bd-chip" data-preset="Gratuity">Gratuity</button>
-          <button type="button" class="bd-chip" data-preset="VAT">VAT</button>
+          <button type="button" class="bd-chip" data-preset="Sales tax">Sales tax</button>
           <button type="button" class="bd-chip" data-preset="">Custom</button>
         </div>
 
@@ -429,14 +427,24 @@ function refreshTipNote(card, state) {
   note.textContent = [10, 15, 20].map(p => `${p}% ${money(round2(basis * p / 100))}`).join(' · ');
 }
 
+// sales tax is charged on the fare, never on gratuity; the server refuses it too
+const TAX_LABEL = /\btax\b/i;
+const GRATUITY_LABEL = /\b(gratuity|tips?)\b/i;
+const taxOnGratuity = (line, other) => TAX_LABEL.test(line.label) && GRATUITY_LABEL.test(other?.label || '');
+
 function renderLines(card, state) {
   const wrap = card.querySelector('.bd-lines');
+  state.lines.forEach(l => {
+    l.basis = l.basis.filter(id => !taxOnGratuity(l, state.lines.find(o => o.id === id)));
+    if (!l.basis.length) l.basis = ['base'];
+  });
   const { base, priced, total } = priceQuote(state.base, state.lines);
 
   wrap.innerHTML = priced.map((l, i) => {
     // a percentage can only build on the base fare or a line above it
     const options = [{ id: 'base', label: 'Base fare' }]
-      .concat(priced.slice(0, i).map(p => ({ id: p.id, label: p.label || 'Untitled' })));
+      .concat(priced.slice(0, i).map(p => ({ id: p.id, label: p.label || 'Untitled' })))
+      .filter(o => !taxOnGratuity(l, o));
 
     return `
     <div class="bd-row bd-line" data-id="${l.id}">
@@ -535,14 +543,41 @@ function extraChargesHtml(q) {
     </div>`;
 }
 
-// a card balance is charged with the same surcharge its deposit carried
-const balanceWithCardFee = (q) => {
-  const base = Number(q.remainingBalance) || 0;
-  return round2(base + round2(base * (Number(q.processingFeeRate) || 0)));
+// a paid booking is either still owed its balance or settled; the badge tells them apart
+const owesBalance = (q) => q.paymentOption === 'deposit' && Number(q.remainingBalance) > 0 && !q.remainingBalancePaid;
+const stageOf = (q) => (q.status === 'paid' ? (owesBalance(q) ? 'deposit_paid' : 'paid_in_full') : q.status);
+const STAGE_LABELS = {
+  pending: 'pending',
+  accepted: 'accepted',
+  awaiting_payment: 'awaiting payment',
+  deposit_paid: 'deposit paid',
+  paid_in_full: 'paid in full',
+  declined: 'declined',
 };
+
+// the quote's lines down to the grand total; the server works out the fee and total
+function quotedSummary(q) {
+  const f = q.figures;
+  const rows = (q.lineItems || []).length
+    ? [['Base fare', q.baseFare], ...q.lineItems.map(l => [l.label, l.amount]), ['Subtotal', q.quotedAmount]]
+    : [['Subtotal', q.quotedAmount]];
+  if (f?.fee) rows.push([f.byCard ? 'Card processing fee' : 'Processing fee', f.fee]);
+  if (q.gratuity?.method === 'online') rows.push([`Gratuity (${q.gratuity.percent}%)`, q.gratuity.amount]);
+  return `<div class="bd-summary">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><span>${money(v)}</span></div>`).join('')}`
+    + (f ? `<div class="total"><span>${f.byCard ? 'Total by card' : 'Total'}</span><span>${money(f.total)}</span></div>` : '')
+    + '</div>';
+}
 
 const depositPercentOf = (card) => Number(card.querySelector('.bd-deposit-pct')?.value);
 const validDepositPercent = (pct) => Number.isInteger(pct) && pct >= 1 && pct <= 100;
+
+// the card price the quote email will show; mirrors the server's priceBooking so the two never differ
+function cardPrice(total, pct) {
+  const fee = round2(total * cardFeeRate);
+  const grand = round2(total + fee);
+  const deposit = pct < 100 ? round2(grand * pct / 100) : null;
+  return { fee, grand, deposit, balance: deposit === null ? null : round2(grand - deposit) };
+}
 
 // what the customer will be asked for now, and what is left for later
 function refreshDeposit(card, state) {
@@ -556,8 +591,8 @@ function refreshDeposit(card, state) {
   } else if (!state.total) {
     note.textContent = '';
   } else {
-    const now = round2(state.total * pct / 100);
-    note.textContent = `${money(now)} now · ${money(state.total - now)} balance`;
+    const { deposit, balance } = cardPrice(state.total, pct);
+    note.textContent = `By card: ${money(deposit)} now · ${money(balance)} balance`;
   }
 }
 
@@ -584,7 +619,7 @@ function wireBreakdown(card) {
       state.lines.push({
         id: `l${++state.seq}`,
         label: preset,
-        // tolls are a pass-through cost; gratuity and VAT are normally rates
+        // tolls are a pass-through cost; gratuity and sales tax are normally rates
         mode: preset === 'Tolls' || preset === '' ? 'amount' : 'percent',
         value: '',
         basis: ['base'],
@@ -814,7 +849,9 @@ function wireSuggest(card, state, rerender) {
 
     if (m?.candidates?.length && matching.route) {
       if (explicit) state.touched = false;   // a different vehicle brings its own figures
-      render({ route: matching.route, repositioning: matching.repositioning || {}, candidates: m.candidates }, true);
+      // a large party bus carries its own, longer minimum
+      const route = { ...matching.route, minimumNote: m.minimumNote || matching.route.minimumNote };
+      render({ route, repositioning: matching.repositioning || {}, candidates: m.candidates }, true);
       showNote();
       return;
     }
@@ -1130,19 +1167,22 @@ function wireCards() {
       const depositPercent = depositPercentOf(card);
       if (!validDepositPercent(depositPercent)) return showMsg('Deposit must be a whole number from 1 to 100.');
       // one row per charge, so the admin can check each figure before it goes out
+      const byCard = cardPrice(state.total, depositPercent);
       const details = [
         { label: 'Base fare', value: money(baseFare) },
         ...priceQuote(baseFare, state.lines).priced.map(l => ({ label: l.label, value: money(l.amount) })),
-        { label: 'Total', value: money(state.total), total: true },
+        { label: 'Subtotal', value: money(state.total) },
+        { label: `Card processing fee (${round2(cardFeeRate * 100)}%)`, value: money(byCard.fee) },
+        { label: 'Total by card', value: money(byCard.grand), total: true },
         ...(state.customerTip ? [{ label: 'Gratuity', value: `Customer chooses 10–20% of ${tipBasisLabel(state)}` }] : []),
         depositPercent === 100
           ? { label: 'Deposit', value: 'Full payment only' }
-          : { label: `Deposit (${depositPercent}%)`, value: money(round2(state.total * depositPercent / 100)) },
+          : { label: `Deposit (${depositPercent}%) by card`, value: money(byCard.deposit) },
       ];
 
       const confirmed = await openModal({
         title: 'Send this quote?',
-        message: `${isOpen ? `${state.vehicleName} at ` : ''}${money(state.total)} will be emailed to ${card.dataset.email} with a payment link.`,
+        message: `${isOpen ? `${state.vehicleName} at ` : ''}${money(byCard.grand)} by card will be emailed to ${card.dataset.email} with a payment link.`,
         details,
         confirmLabel: 'Send quote',
       });

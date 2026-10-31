@@ -259,7 +259,8 @@
 .badge-pending  { background: none; padding-left: 0; padding-right: 0; color: var(--accent); }
 .badge-accepted { background: rgba(40,167,69,.15); color: #7ee29b; }
 .badge-declined { background: rgba(220,53,69,.15); color: #ff8a95; }
-.badge-paid     { background: rgba(90,160,255,.15); color: #8ab8ff; }
+.badge-deposit_paid { background: rgba(90,160,255,.15); color: #8ab8ff; }
+.badge-paid_in_full { background: rgba(40,167,69,.28); color: #4ade80; }
 .badge-awaiting_payment { background: rgba(245,166,35,.15); color: var(--accent); }
 /* the charge button has its own class: sharing .btn-confirm would also confirm the booking's payment */
 .btn-confirm, .btn-confirm-charge {

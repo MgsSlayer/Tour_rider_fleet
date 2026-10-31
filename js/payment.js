@@ -6,6 +6,7 @@ let quote = null;
 let mode = 'initial';          // initial | balance | charge (a damage or cleaning charge after the trip)
 let extraCharge = null;
 let fees = {};                // method -> surcharge rate, straight from the server
+let prices = [];              // every figure this page shows, per rate and gratuity pick, priced by the server
 let payments = null;          // Square Web Payments instance
 let card = null;
 let activeMethod = 'card';
@@ -57,24 +58,23 @@ function tipChoice() {
 }
 const onlineTip = () => (tipChoice()?.method === 'online' ? tipChoice().amount : 0);
 
-// a deposit never carries gratuity; added online, the whole of it goes with the balance
-function subtotalNow() {
-  if (mode === 'balance') return Number(quote.remainingBalance);
-  if (mode === 'charge') return Number(extraCharge.amount);
-  return selectedOption() === 'deposit'
-    ? Number(quote.depositAmount)
-    : round2(Number(quote.quotedAmount) + onlineTip());
-}
-
 const feeRate = (method) => Number(fees[method] || 0);
-const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-const feeFor = (method) => round2(subtotalNow() * feeRate(method));
-const amountFor = (method) => round2(subtotalNow() + feeFor(method));
+
+// the server's figures for this method and the current gratuity pick
+const priceFor = (method) => prices.find(p => p.rate === feeRate(method)
+  && (mode !== 'initial' || p.tip === onlineTip()));
+
+// what the selected option costs by this method: { subtotal, fee, amount }
+function partFor(method) {
+  const p = priceFor(method);
+  if (mode !== 'initial') return p.now;
+  // a deposit never carries gratuity; added online, the whole of it goes with the balance
+  return selectedOption() === 'deposit' ? p.deposit : p.full;
+}
+const amountFor = (method) => partFor(method).amount;
 
 // what the customer is actually charged for the method they have selected
-function amountNow() {
-  return round2(subtotalNow() + feeFor(activeMethod));
-}
+const amountNow = () => amountFor(activeMethod);
 
 async function init() {
   if (!token) return fail('This link is missing its access code. Please use the link from your email.');
@@ -87,6 +87,7 @@ async function init() {
     mode = ['balance', 'charge'].includes(data.mode) ? data.mode : 'initial';
     extraCharge = data.charge || null;
     fees = data.fees || {};
+    prices = data.prices || [];
   } catch (err) {
     return fail('We could not reach our booking system. Please try again shortly.');
   }
@@ -148,7 +149,7 @@ function renderQuote() {
     ['Passengers', quote.passengers],
     (quote.lineItems || []).length ? ['Base fare', money(quote.baseFare)] : null,
     ...(quote.lineItems || []).map(l => [l.label, money(l.amount)]),
-    [quote.gratuity && !quote.gratuity.method ? 'Total before gratuity' : 'Total quoted', money(quote.quotedAmount)],
+    [quote.gratuity && !quote.gratuity.method ? 'Subtotal before gratuity' : 'Subtotal', money(quote.quotedAmount)],
     quote.gratuity?.method
       ? ['Gratuity', `${quote.gratuity.percent}% (${money(quote.gratuity.amount)}), ${quote.gratuity.method === 'online' ? 'added online' : 'cash to driver'}`]
       : null,
@@ -168,7 +169,6 @@ function renderQuote() {
   }
 
   setupGratuity();
-  document.getElementById('full-amount').textContent = money(quote.quotedAmount);
   // a booking set to full payment only has no deposit to offer
   if (!quote.depositAmount) {
     document.querySelector('input[name="paymentOption"][value="full"]').checked = true;
@@ -176,7 +176,14 @@ function renderQuote() {
     return;
   }
   document.getElementById('deposit-label').textContent = `Deposit (${quote.depositPercent}%)`;
-  document.getElementById('deposit-amount').textContent = money(quote.depositAmount);
+}
+
+// both choices show what the selected method actually charges, processing fee included
+function renderChoiceAmounts() {
+  if (mode !== 'initial') return;
+  const p = priceFor(activeMethod);
+  document.getElementById('full-amount').textContent = money(p.full.amount);
+  if (p.deposit) document.getElementById('deposit-amount').textContent = money(p.deposit.amount);
 }
 
 async function loadSquare() {
@@ -238,10 +245,9 @@ function renderTipNote() {
 
 function updateChoice() {
   if (mode === 'initial') {
-    document.getElementById('full-amount').textContent = money(round2(Number(quote.quotedAmount) + onlineTip()));
+    renderChoiceAmounts();
     renderTipNote();
   }
-  syncMethodAvailability();
   syncPayLabels();
   renderDepositNote();
   renderFeeSummary();
@@ -250,36 +256,22 @@ function updateChoice() {
   if (activeMethod !== 'card' && !OFFLINE.includes(activeMethod)) mountMethod(activeMethod, true);
 }
 
-// cash cannot hold a date, so it is only offered when the whole sum is being paid
-// cash is only for paying a booking outright before the trip, never a deposit or a later charge
-function syncMethodAvailability() {
-  const noCash = mode === 'charge' || (mode === 'initial' && selectedOption() === 'deposit');
-  const cashTab = document.querySelector('.pay-method[data-method="cash"]');
-  if (!cashTab) return;
-  cashTab.hidden = noCash;
-  if (noCash && activeMethod === 'cash') selectMethod('card');
-}
-
 // every button that takes money says how much; wallet buttons are drawn by their providers
 function syncPayLabels() {
   document.getElementById('pay-amount').textContent = money(amountFor('card'));
   document.getElementById('zelle-choose').textContent = `Pay ${money(amountFor('zelle'))} by Zelle`;
-  document.getElementById('cash-choose').textContent = `Pay ${money(amountFor('cash'))} by cash`;
 }
 
 const depositing = () => mode === 'initial' && selectedOption() === 'deposit';
 
 /**
- * What is still owed after the deposit. A card is kept and charged on arrival
- * with its surcharge; Zelle is settled by Zelle on arrival; any other method is
- * asked for by link, where the fee depends on what the customer pays with then.
+ * What is still owed after the deposit: the rest of the grand total. A card is
+ * kept and charged on arrival; Zelle is settled by Zelle on arrival; any other
+ * method is asked for by link, quoted here as if paid the same way again.
  */
 function balanceLater() {
-  const base = round2(Number(quote.quotedAmount) - Number(quote.depositAmount) + onlineTip());
-  if (activeMethod === 'card') {
-    return { how: 'card', amount: round2(base + round2(base * feeRate('card'))) };
-  }
-  return { how: activeMethod === 'zelle' ? 'zelle' : 'link', amount: base };
+  const how = activeMethod === 'card' ? 'card' : activeMethod === 'zelle' ? 'zelle' : 'link';
+  return { how, amount: priceFor(activeMethod).balance.amount };
 }
 
 // a card is kept for a short while after the trip, so the customer is told before paying
@@ -310,20 +302,21 @@ function renderDepositNote() {
 // the surcharge is spelled out rather than folded into one number
 function renderFeeSummary() {
   const box = document.getElementById('fee-summary');
-  const subtotal = subtotalNow();
-  const fee = feeFor(activeMethod);
+  const { subtotal, fee, amount } = partFor(activeMethod);
   const rate = feeRate(activeMethod);
   const tip = tipChoice();
-  // paying in full with gratuity online: show the booking and the gratuity separately
-  const lead = selectedOption() === 'full' && tip?.method === 'online'
-    ? `<div><span>Booking total</span><span>${money(quote.quotedAmount)}</span></div>
-       <div><span>Gratuity (${tip.percent}%)</span><span>${money(tip.amount)}</span></div>`
-    : `<div><span>${mode === 'charge' ? 'Charge' : mode === 'balance' ? 'Balance' : (selectedOption() === 'deposit' ? 'Deposit' : 'Booking total')}</span><span>${money(subtotal)}</span></div>`;
+  // paying in full with gratuity online: the fee is on the booking, the gratuity comes after it untouched
+  const tipOnline = selectedOption() === 'full' && tip?.method === 'online';
+  const lead = tipOnline
+    ? `<div><span>Booking</span><span>${money(quote.quotedAmount)}</span></div>`
+    : `<div><span>${mode === 'charge' ? 'Charge' : mode === 'balance' ? 'Balance' : (selectedOption() === 'deposit' ? 'Deposit' : 'Subtotal')}</span><span>${money(subtotal)}</span></div>`;
   box.innerHTML = `
     ${lead}
     <div><span>Processing fee${rate ? ` (${esc((rate * 100).toFixed(rate * 100 % 1 ? 2 : 0))}%)` : ''}</span><span>${fee ? money(fee) : 'None'}</span></div>
-    <div class="fee-total"><span>You pay</span><span>${money(round2(subtotal + fee))}</span></div>`
-    + (depositing() ? balanceRow(balanceLater()) : '')
+    ${tipOnline ? `<div><span>Gratuity (${tip.percent}%)</span><span>${money(tip.amount)}</span></div>` : ''}
+    <div class="fee-total"><span>You pay</span><span>${money(amount)}</span></div>`
+    + (depositing() ? balanceRow(balanceLater())
+      + `<div class="fee-later"><span>Total</span><span>${money(priceFor(activeMethod).total)}</span></div>` : '')
     + (tip?.method === 'cash'
       ? `<div class="fee-later"><span>Gratuity (${tip.percent}%), cash to driver</span><span>${money(tip.amount)}</span></div>`
       : '');
@@ -332,8 +325,8 @@ function renderFeeSummary() {
 
 function balanceRow(later) {
   const tip = onlineTip() > 0;
-  const incl = [tip ? 'gratuity' : '', later.how === 'card' && feeRate('card')
-    ? `${esc(rateLabel('card').replace('+', ''))} processing fee` : ''].filter(Boolean).join(' and ');
+  const incl = [tip ? 'gratuity' : '', feeRate(activeMethod)
+    ? `${esc(rateLabel(activeMethod).replace('+', ''))} processing fee` : ''].filter(Boolean).join(' and ');
   const label = {
     card: 'Balance charged on arrival',
     zelle: 'Balance due via Zelle on arrival',
@@ -357,9 +350,6 @@ function syncGate() {
 const ICONS = {
   card: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
     <rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>`,
-  cash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-    <rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/>
-    <path d="M5.5 9.5h.01M18.5 14.5h.01"/></svg>`,
   apple_pay: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.15 4.318a42.16 42.16 0 0 0-.454.003c-.15.005-.303.013-.452.04a1.44 1.44 0 0 0-1.06.772c-.07.138-.114.278-.14.43-.028.148-.037.3-.04.45A10.2 10.2 0 0 0 0 6.222v11.557c0 .07.002.138.003.207.004.15.013.303.04.452.027.15.072.291.142.429a1.436 1.436 0 0 0 .63.63c.138.07.278.115.43.142.148.027.3.036.45.04l.208.003h20.194l.207-.003c.15-.004.303-.013.452-.04.15-.027.291-.071.428-.141a1.432 1.432 0 0 0 .631-.631c.07-.138.115-.278.141-.43.027-.148.036-.3.04-.45.002-.07.003-.138.003-.208l.001-.246V6.221c0-.07-.002-.138-.004-.207a2.995 2.995 0 0 0-.04-.452 1.446 1.446 0 0 0-1.2-1.201 3.022 3.022 0 0 0-.452-.04 10.448 10.448 0 0 0-.453-.003zm0 .512h19.942c.066 0 .131.002.197.003.115.004.25.01.375.032.109.02.2.05.287.094a.927.927 0 0 1 .407.407.997.997 0 0 1 .094.288c.022.123.028.258.031.374.002.065.003.13.003.197v11.552c0 .065 0 .13-.003.196-.003.115-.009.25-.032.375a.927.927 0 0 1-.5.693 1.002 1.002 0 0 1-.286.094 2.598 2.598 0 0 1-.373.032l-.2.003H1.906c-.066 0-.133-.002-.196-.003a2.61 2.61 0 0 1-.375-.032c-.109-.02-.2-.05-.288-.094a.918.918 0 0 1-.406-.407 1.006 1.006 0 0 1-.094-.288 2.531 2.531 0 0 1-.032-.373 9.588 9.588 0 0 1-.002-.197V6.224c0-.065 0-.131.002-.197.004-.114.01-.248.032-.375.02-.108.05-.199.094-.287a.925.925 0 0 1 .407-.406 1.03 1.03 0 0 1 .287-.094c.125-.022.26-.029.375-.032.065-.002.131-.002.196-.003zm4.71 3.7c-.3.016-.668.199-.88.456-.191.22-.36.58-.316.918.338.03.675-.169.888-.418.205-.258.345-.603.308-.955zm2.207.42v5.493h.852v-1.877h1.18c1.078 0 1.835-.739 1.835-1.812 0-1.07-.742-1.805-1.808-1.805zm.852.719h.982c.739 0 1.161.396 1.161 1.089 0 .692-.422 1.092-1.164 1.092h-.979zm-3.154.3c-.45.01-.83.28-1.05.28-.235 0-.593-.264-.981-.257a1.446 1.446 0 0 0-1.23.747c-.527.908-.139 2.255.374 2.995.249.366.549.769.944.754.373-.014.52-.242.973-.242.454 0 .586.242.98.235.41-.007.667-.366.915-.733.286-.417.403-.82.41-.841-.007-.008-.79-.308-.797-1.209-.008-.754.615-1.113.644-1.135-.352-.52-.9-.578-1.09-.593a1.123 1.123 0 0 0-.092-.002zm8.204.397c-.99 0-1.606.533-1.652 1.256h.777c.072-.358.369-.586.845-.586.502 0 .803.266.803.711v.309l-1.097.064c-.951.054-1.488.484-1.488 1.184 0 .72.548 1.207 1.332 1.207.526 0 1.032-.281 1.264-.727h.019v.659h.788v-2.76c0-.803-.62-1.317-1.591-1.317zm1.94.072l1.446 4.009c0 .003-.073.24-.073.247-.125.41-.33.571-.711.571-.069 0-.206 0-.267-.015v.666c.06.011.267.019.335.019.83 0 1.226-.312 1.568-1.283l1.5-4.214h-.868l-1.012 3.259h-.015l-1.013-3.26zm-1.167 2.189v.316c0 .521-.45.917-1.024.917-.442 0-.731-.228-.731-.579 0-.342.278-.56.769-.593z"/></svg>`,
   google_pay: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.963 7.235A3.963 3.963 0 00.422 9.419a3.963 3.963 0 000 3.559 3.963 3.963 0 003.541 2.184c1.07 0 1.97-.352 2.627-.957.748-.69 1.18-1.71 1.18-2.916a4.722 4.722 0 00-.07-.806H3.964v1.526h2.14a1.835 1.835 0 01-.79 1.205c-.356.241-.814.379-1.35.379-1.034 0-1.911-.697-2.225-1.636a2.375 2.375 0 010-1.517c.314-.94 1.191-1.636 2.225-1.636a2.152 2.152 0 011.52.594l1.132-1.13a3.808 3.808 0 00-2.652-1.033zm6.501.55v6.9h.886V11.89h1.465c.603 0 1.11-.196 1.522-.588a1.911 1.911 0 00.635-1.464 1.92 1.92 0 00-.635-1.456 2.125 2.125 0 00-1.522-.598zm2.427.85a1.156 1.156 0 01.823.365 1.176 1.176 0 010 1.686 1.171 1.171 0 01-.877.357H11.35V8.635h1.487a1.156 1.156 0 01.054 0zm4.124 1.175c-.842 0-1.477.308-1.907.925l.781.491c.288-.417.68-.626 1.175-.626a1.255 1.255 0 01.856.323 1.009 1.009 0 01.366.785v.202c-.34-.193-.774-.289-1.3-.289-.617 0-1.11.145-1.479.434-.37.288-.554.677-.554 1.165a1.476 1.476 0 00.525 1.156c.35.308.785.463 1.305.463.61 0 1.098-.27 1.465-.81h.038v.655h.848v-2.909c0-.61-.19-1.09-.568-1.44-.38-.35-.896-.525-1.551-.525zm2.263.154l1.946 4.422-1.098 2.38h.915L24 9.963h-.965l-1.368 3.391h-.02l-1.406-3.39zm-2.146 2.368c.494 0 .88.11 1.156.33 0 .372-.147.696-.44.973a1.413 1.413 0 01-.997.414 1.081 1.081 0 01-.69-.232.708.708 0 01-.293-.578c0-.257.12-.47.363-.647.24-.173.54-.26.9-.26Z"/></svg>`,
   cash_app: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.59 3.475a5.1 5.1 0 00-3.05-3.05c-1.31-.42-2.5-.42-4.92-.42H8.36c-2.4 0-3.61 0-4.9.4a5.1 5.1 0 00-3.05 3.06C0 4.765 0 5.965 0 8.365v7.27c0 2.41 0 3.6.4 4.9a5.1 5.1 0 003.05 3.05c1.3.41 2.5.41 4.9.41h7.28c2.41 0 3.61 0 4.9-.4a5.1 5.1 0 003.06-3.06c.41-1.3.41-2.5.41-4.9v-7.25c0-2.41 0-3.61-.41-4.91zm-6.17 4.63l-.93.93a.5.5 0 01-.67.01 5 5 0 00-3.22-1.18c-.97 0-1.94.32-1.94 1.21 0 .9 1.04 1.2 2.24 1.65 2.1.7 3.84 1.58 3.84 3.64 0 2.24-1.74 3.78-4.58 3.95l-.26 1.2a.49.49 0 01-.48.39H9.63l-.09-.01a.5.5 0 01-.38-.59l.28-1.27a6.54 6.54 0 01-2.88-1.57v-.01a.48.48 0 010-.68l1-.97a.49.49 0 01.67 0c.91.86 2.13 1.34 3.39 1.32 1.3 0 2.17-.55 2.17-1.42 0-.87-.88-1.1-2.54-1.72-1.76-.63-3.43-1.52-3.43-3.6 0-2.42 2.01-3.6 4.39-3.71l.25-1.23a.48.48 0 01.48-.38h1.78l.1.01c.26.06.43.31.37.57l-.27 1.37c.9.3 1.75.77 2.48 1.39l.02.02c.19.2.19.5 0 .68z"/></svg>`,
@@ -376,11 +366,10 @@ const METHODS = [
   { id: 'paypal', label: 'PayPal' },
   { id: 'venmo', label: 'Venmo' },
   { id: 'zelle', label: 'Zelle' },
-  { id: 'cash', label: 'Cash' },
 ];
 
 // settled away from the app, so there is nothing to probe or tokenise
-const OFFLINE = ['zelle', 'cash'];
+const OFFLINE = ['zelle'];
 
 async function buildMethods() {
   const available = ['card'];
@@ -390,7 +379,7 @@ async function buildMethods() {
     if (await squareWalletAvailable(id)) available.push(id);
   }
   for (const id of await paypalMethodsAvailable()) available.push(id);
-  // Zelle and cash need no provider, so they are always on offer
+  // Zelle needs no provider, so it is always on offer
   OFFLINE.forEach(id => available.push(id));
 
   const tabs = document.getElementById('method-tabs');
@@ -410,7 +399,6 @@ async function buildMethods() {
   // a single option is not a choice worth showing
   tabs.hidden = available.length < 2;
   refreshTabTotals();
-  syncMethodAvailability();
 }
 
 const rateLabel = (method) => {
@@ -420,10 +408,9 @@ const rateLabel = (method) => {
 
 // what each method would actually cost, for the amount currently selected
 function refreshTabTotals() {
-  const subtotal = subtotalNow();
   document.querySelectorAll('.pay-method').forEach((btn) => {
     const el = btn.querySelector('.pm-total');
-    if (el) el.textContent = money(round2(subtotal + round2(subtotal * feeRate(btn.dataset.method))));
+    if (el) el.textContent = money(amountFor(btn.dataset.method));
   });
 }
 
@@ -439,6 +426,7 @@ async function selectMethod(method) {
     p.hidden = p.dataset.method !== method;
   });
 
+  renderChoiceAmounts();
   renderFeeSummary();
   renderDepositNote();
   syncPayLabels();
@@ -556,7 +544,7 @@ async function mountCashApp(amount) {
   // Cash App hands the token back through an event rather than a promise
   cashAppPay.addEventListener('ontokenization', (event) => {
     const { tokenResult, error } = event.detail || {};
-    if (error) return payError('Cash App Pay could not complete. Please try another method.');
+    if (error) return payError('Cash App could not complete. Please try another method.');
     if (!termsAccepted()) return payError('Please accept the terms and conditions before paying.');
     handleSquareResult('cash_app', tokenResult);
   });
@@ -731,11 +719,9 @@ function succeed(data) {
   } else if (mode === 'balance') {
     note = `We've received ${paid}${fee}. Your booking is settled in full. A receipt is on its way to your inbox.`;
   } else if (data.balanceByLink) {
-    note = `We've taken ${paid}${fee}. ${money(data.remainingBalance)} is due on the day of your trip, and we'll email you a payment link that morning. A receipt is on its way to your inbox.`;
+    note = `We've taken ${paid}${fee}. ${money(data.balanceAmount)} is due on the day of your trip, and we'll email you a payment link that morning. A receipt is on its way to your inbox.`;
   } else if (data.remainingBalance > 0) {
-    // the balance carries the same processing fee the deposit just did
-    const later = round2(data.remainingBalance + round2(data.remainingBalance * Number(data.processingFeeRate || 0)));
-    note = `We've charged ${paid}${fee}. The balance of ${money(later)}${data.processingFee > 0 ? ' (including the processing fee)' : ''} `
+    note = `We've charged ${paid}${fee}. The balance of ${money(data.balanceAmount)}${data.processingFee > 0 ? ' (including the processing fee)' : ''} `
       + 'will be charged to the same card automatically on arrival of your vehicle. A receipt is on its way to your inbox.';
   } else {
     note = `We've charged ${paid}${fee} in full. A receipt is on its way to your inbox.`;

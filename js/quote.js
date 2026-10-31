@@ -32,7 +32,7 @@ async function init() {
 
   form.querySelectorAll('input[name="tripType"]')
     .forEach(el => el.addEventListener('change', syncTripType));
-  document.getElementById('add-stop').addEventListener('click', addStop);
+  document.getElementById('add-stop').addEventListener('click', () => addStop());
   wireRoundTripDropoff();
   syncTripType();
 
@@ -50,6 +50,13 @@ async function init() {
 
 // mirrors the server rule; the server is what actually enforces it
 const MIN_TRIP_HOURS = 3;
+const PARTY_BUS_MIN_HOURS = 5;
+const LARGE_PARTY_BUS_SEATS = 25;
+// party bus types as the fleet page groups them (js/index.js)
+const PARTY_BUS_TYPES = ['party bus', 'partybus', 'party', 'sprinter limo'];
+const isLargePartyBus = (v) => PARTY_BUS_TYPES.some(t => (v?.type || '').toLowerCase().includes(t))
+  && parseInt(v?.capacity, 10) >= LARGE_PARTY_BUS_SEATS;
+const minTripHours = () => (isLargePartyBus(chosenVehicle) ? PARTY_BUS_MIN_HOURS : MIN_TRIP_HOURS);
 
 // a drop-off at or before pick-up means the trip runs past midnight
 function tripMinutes(pickup, dropoff) {
@@ -70,7 +77,9 @@ function syncMinTrip() {
   const pickup = document.getElementById('pickupTime').value;
   const dropoff = document.getElementById('finalDropoffTime').value;
   const booked = pickup && dropoff ? tripMinutes(pickup, dropoff) : null;
-  warning.hidden = booked === null || booked >= MIN_TRIP_HOURS * 60;
+  const hours = minTripHours();
+  warning.textContent = `Minimum booking is ${hours} hours${hours > MIN_TRIP_HOURS ? ' for this party bus' : ''}.`;
+  warning.hidden = booked === null || booked >= hours * 60;
 }
 
 const ADDRESS_FIELDS = ['pickupAddress', 'dropoffAddress'];
@@ -167,11 +176,29 @@ function syncTripType() {
     dropoff.value = '';
     tripCoords.dropoff = null;
   }
+  syncDefaultStop();
   syncDropoffTime();
   drawTripMap();
 }
 
-function addStop() {
+// a round trip offers one stop-over up front; elsewhere an empty one would wrongly ask for a drop-off time
+function syncDefaultStop() {
+  if (isRoundTrip()) {
+    if (!stopInputs().length) addStop({ focus: false });
+    return;
+  }
+  stopInputs().filter((input) => !input.value.trim()).forEach((input) => removeStop(input.closest('.stop-row')));
+}
+
+function removeStop(row) {
+  stopCoords.delete(row.querySelector('input').id);
+  row.remove();
+  syncStops();
+  drawTripMap();
+}
+
+// a stop added by the form itself must not pull focus, or the page jumps on mobile
+function addStop({ focus = true } = {}) {
   if (stopInputs().length >= MAX_STOPS) return;
   const id = `stop-${++stopSeq}`;
   const row = document.createElement('div');
@@ -185,19 +212,14 @@ function addStop() {
   document.getElementById('stops').appendChild(row);
 
   const input = row.querySelector('input');
-  row.querySelector('.stop-remove').addEventListener('click', () => {
-    row.remove();
-    stopCoords.delete(id);
-    syncStops();
-    drawTripMap();
-  });
+  row.querySelector('.stop-remove').addEventListener('click', () => removeStop(row));
   // suggestions attach once the Maps script is in; the field works without them
   loadGoogleMaps().then((ok) => {
     if (ok) attachAddressAutocomplete(input, (coords) => { stopCoords.set(id, coords); drawTripMap(); });
   });
 
   syncStops();
-  input.focus();
+  if (focus) input.focus();
 }
 
 // numbers the stops in route order and hides the button at the limit
@@ -242,6 +264,7 @@ function showPicker(vehicles) {
   select.addEventListener('change', () => {
     chosenVehicle = vehicles.find(v => v.sn === select.value) || null;
     if (chosenVehicle) renderChosen(chosenVehicle);
+    syncMinTrip();
   });
   wrap.style.display = 'block';
 }
@@ -277,8 +300,9 @@ async function onSubmit(e) {
   // without a drop-off time (one way, no stops) there is no length to check; the price carries the minimum
   const dropoffAsked = !document.getElementById('dropoff-time-field').hidden;
   const booked = tripMinutes(val('pickupTime'), val('finalDropoffTime'));
-  if (!OPEN_REQUEST && dropoffAsked && (booked === null || booked < MIN_TRIP_HOURS * 60)) {
-    return showAlert(`Trips run for a minimum of ${MIN_TRIP_HOURS} hours. Please adjust your pick-up or drop-off time.`);
+  const minHours = minTripHours();
+  if (!OPEN_REQUEST && dropoffAsked && (booked === null || booked < minHours * 60)) {
+    return showAlert(`${minHours > MIN_TRIP_HOURS ? 'This party bus runs' : 'Trips run'} for a minimum of ${minHours} hours. Please adjust your pick-up or drop-off time.`);
   }
 
   const payload = {
