@@ -59,23 +59,34 @@ function loadGoogleMaps() {
   });
 }
 
-/** Attaches throttled address autocomplete to one input. */
-function attachAddressAutocomplete(el, onPlace) {
+// a venue keeps its name in front of its address, so "JFK Airport" isn't reduced to a street line;
+// dropped again if the pair would run past what the field accepts
+function placeLabel(place, max) {
+  const address = place.formatted_address;
+  const name = (place.name || '').trim();
+  const venue = (place.types || []).some((t) => t === 'establishment' || t === 'point_of_interest');
+  const label = venue && name && !address.includes(name) ? `${name}, ${address}` : address;
+  return max > 0 && label.length > max ? address : label;
+}
+
+/** Attaches throttled autocomplete to one input; places such as airports and hotels are offered unless addressesOnly. */
+function attachAddressAutocomplete(el, onPlace, { addressesOnly = false } = {}) {
   if (!el || !window.google?.maps?.places) return null;
 
   throttleAutocomplete(el);
 
   const ac = new google.maps.places.Autocomplete(el, {
-    types: ['address'],
+    // no type set means Google suggests places as well as street addresses
+    ...(addressesOnly ? { types: ['address'] } : {}),
     componentRestrictions: { country: 'us' },
-    // geometry rides along with the Place Details call we already make, so the
-    // coordinates cost nothing extra and save geocoding the address later
-    fields: ['formatted_address', 'geometry.location'],
+    // name, types and geometry ride along with the Place Details call we already make,
+    // so they cost nothing extra and the coordinates save geocoding the address later
+    fields: ['name', 'types', 'formatted_address', 'geometry.location'],
   });
 
   ac.addListener('place_changed', () => {
     const place = ac.getPlace();
-    if (place?.formatted_address) el.value = place.formatted_address;
+    if (place?.formatted_address) el.value = placeLabel(place, el.maxLength);
     const loc = place?.geometry?.location;
     if (onPlace) {
       onPlace(loc ? { lat: loc.lat(), lng: loc.lng() } : null, el.value);
@@ -93,12 +104,13 @@ function attachAddressAutocomplete(el, onPlace) {
 }
 
 /** Loads the SDK if needed, then attaches to every given input. */
-async function initAddressAutocomplete(ids, onPlace) {
+async function initAddressAutocomplete(ids, onPlace, options) {
   const loaded = await loadGoogleMaps();
   if (!loaded) return false;
   ids.forEach((id) => attachAddressAutocomplete(
     document.getElementById(id),
-    onPlace ? (coords, address) => onPlace(id, coords, address) : null
+    onPlace ? (coords, address) => onPlace(id, coords, address) : null,
+    options
   ));
   return true;
 }

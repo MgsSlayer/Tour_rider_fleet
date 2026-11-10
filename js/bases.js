@@ -112,7 +112,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.addEventListener('click', () => {
       if (tab.dataset.pane === 'pane-bases' && !placesReady) {
         placesReady = true;
-        initAddressAutocomplete(['base-address']);
+        // yards are street addresses, never venues
+        initAddressAutocomplete(['base-address'], null, { addressesOnly: true });
       }
     });
   });
