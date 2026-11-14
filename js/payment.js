@@ -274,16 +274,8 @@ function balanceLater() {
   return { how, amount: priceFor(activeMethod).balance.amount };
 }
 
-// a card is kept for a short while after the trip, so the customer is told before paying
-const CARD_HOLD = 'kept on file until 48 hours after your trip for any damage or cleaning charges';
-
 function renderDepositNote() {
   const note = document.getElementById('deposit-note');
-  if (mode === 'initial' && activeMethod === 'card' && !depositing()) {
-    note.textContent = `Your card will be ${CARD_HOLD}.`;
-    note.style.display = 'block';
-    return;
-  }
   if (!depositing()) {
     note.style.display = 'none';
     return;
