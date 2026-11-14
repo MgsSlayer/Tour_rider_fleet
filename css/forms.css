@@ -240,6 +240,8 @@
 .req-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
 .req-head h3 { margin: 0 0 .2rem; font-size: 1.05rem; }
 .req-who { display: flex; align-items: flex-start; gap: .8rem; min-width: 0; }
+/* a long email has no natural break, so it may wrap anywhere rather than push past the card */
+.req-who > div { min-width: 0; overflow-wrap: anywhere; }
 .req-vehicle-pic {
   width: 84px; height: 60px; flex-shrink: 0;
   object-fit: cover; border-radius: var(--radius);

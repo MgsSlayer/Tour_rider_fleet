@@ -246,7 +246,7 @@ function renderCard(q) {
           <div class="req-vehicle-name">${isOpen && !q.vehicle?.sn
             ? `Open request · ${esc(wantsLabel(q.wants))}`
             : `${esc(q.vehicle?.name || q.vehicle?.type || 'Vehicle')}${q.vehicle?.sn ? ` · S/N ${esc(q.vehicle.sn)}` : ''}`}</div>
-          <div class="cv-meta">${esc(q.customer.email)}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
+          <div class="cv-meta">${esc(q.customer.email).replace('@', '@<wbr>')}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
         </div>
       </div>
       <span class="badge badge-${stageOf(q)}">${STAGE_LABELS[stageOf(q)] || esc(q.status)}</span>
