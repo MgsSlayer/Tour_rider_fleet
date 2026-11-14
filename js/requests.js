@@ -36,7 +36,7 @@ async function api(path, options = {}) {
 // Promise-based replacement for confirm()/prompt().
 // Resolves false/null on cancel; with `input`, resolves the entered text.
 // `details` is an optional list of { label, value, total } rows shown as a two-column summary
-function openModal({ title, message, confirmLabel = 'Confirm', danger = false, input = null, details = null }) {
+function openModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false, input = null, details = null }) {
   return new Promise(resolve => {
     const backdrop = document.getElementById('modal');
     const field = document.getElementById('modal-field');
@@ -52,6 +52,7 @@ function openModal({ title, message, confirmLabel = 'Confirm', danger = false, i
     summary.innerHTML = (details || []).map(r =>
       `<div${r.total ? ' class="total"' : ''}><span>${esc(r.label)}</span><span>${esc(r.value)}</span></div>`).join('');
     confirmBtn.textContent = confirmLabel;
+    cancelBtn.textContent = cancelLabel;
     confirmBtn.classList.toggle('danger', danger);
     error.hidden = true;
 
@@ -325,6 +326,7 @@ function renderCard(q) {
         </div>
         <div class="bd-reposition"></div>
         <div class="bd-candidates"></div>
+        <div class="bd-margin" hidden></div>
 
         <div class="bd-row bd-base">
           <span class="bd-label">Base fare</span>
@@ -496,6 +498,8 @@ function refreshTotals(card, state) {
 }
 
 const isGratuity = (line) => /gratuity/i.test(line.label || '');
+// what unticking "customer chooses" adds when the quote had no gratuity of its own; the suggestions' default rate
+const DEFAULT_GRATUITY_PERCENT = 20;
 
 const CHARGE_LABELS = { damage: 'Damage', cleaning: 'Cleaning', other: 'Other' };
 
@@ -651,6 +655,8 @@ function wireBreakdown(card) {
       line.basis = boxes.length ? boxes.map(b => b.value) : ['base'];
       rerender();
     }
+    // checked on leaving the field, so typing "0.5" or "15" never trips it halfway
+    if (e.target.classList.contains('bd-value') && isGratuity(line) && !(Number(line.value) > 0)) offerCustomerTip();
   });
 
   const removeLine = (id) => {
@@ -662,20 +668,56 @@ function wireBreakdown(card) {
     });
   };
 
-  lines.addEventListener('click', e => {
-    if (!e.target.classList.contains('bd-remove')) return;
-    removeLine(e.target.closest('.bd-line').dataset.id);
-    rerender();
-  });
-
   // the customer picks the gratuity at checkout, so the quote must not carry one too
   const tipToggle = card.querySelector('.bd-tip-toggle');
-  tipToggle.addEventListener('change', () => {
-    state.customerTip = tipToggle.checked;
-    if (state.customerTip) state.lines.filter(l => isGratuity(l)).forEach(l => removeLine(l.id));
-    card.querySelector('.bd-chip[data-preset="Gratuity"]').hidden = state.customerTip;
+  // gratuity lines taken off when the customer is given the choice, with where they sat, so undoing it puts them back
+  let setAside = [];
+  const setCustomerTip = (on, removed = []) => {
+    state.customerTip = on;
+    tipToggle.checked = on;
+    if (on) {
+      setAside = [...removed, ...state.lines.filter(isGratuity).map(line => ({ line, index: state.lines.indexOf(line) }))]
+        .filter(t => Number(t.line.value) > 0)
+        .sort((a, b) => a.index - b.index);
+      state.lines.filter(isGratuity).forEach(l => removeLine(l.id));
+    } else {
+      const back = setAside.length ? setAside : [{
+        line: { id: `l${++state.seq}`, label: 'Gratuity', mode: 'percent', value: DEFAULT_GRATUITY_PERCENT, basis: ['base'] },
+        index: state.lines.length,
+      }];
+      back.forEach(({ line, index }) => {
+        // a line it was worked out on may have gone in the meantime
+        line.basis = line.basis.filter(id => id === 'base' || state.lines.some(l => l.id === id));
+        if (!line.basis.length) line.basis = ['base'];
+        state.lines.splice(Math.min(index, state.lines.length), 0, line);
+      });
+      setAside = [];
+    }
+    card.querySelector('.bd-chip[data-preset="Gratuity"]').hidden = on;
     rerender();
     card.dispatchEvent(new Event('tip-toggle'));
+  };
+  tipToggle.addEventListener('change', () => setCustomerTip(tipToggle.checked));
+
+  // once the quote carries no gratuity, offer to let the customer pick one at checkout instead
+  const offerCustomerTip = async (removed = []) => {
+    if (state.customerTip || state.lines.some(l => isGratuity(l) && Number(l.value) > 0)) return;
+    const yes = await openModal({
+      title: 'Let the customer choose the gratuity?',
+      message: 'This quote no longer has a gratuity. The customer can pick 10%, 15% or 20% at checkout instead.',
+      confirmLabel: 'Let customer choose',
+      cancelLabel: 'No gratuity',
+    });
+    if (yes) setCustomerTip(true, removed);
+  };
+
+  lines.addEventListener('click', e => {
+    if (!e.target.classList.contains('bd-remove')) return;
+    const line = find(e.target);
+    const index = state.lines.indexOf(line);
+    removeLine(line.id);
+    rerender();
+    if (isGratuity(line)) offerCustomerTip([{ line, index }]);
   });
 
   card.querySelector('.bd-tip-basis').addEventListener('change', () => {
@@ -717,11 +759,12 @@ function wireCharge(card, btn) {
   });
 }
 
-// one matched vehicle: retail total up front, affiliate beneath, so margin reads at a glance
+// one matched vehicle: retail base fare up front, affiliate beneath, so margin reads at a glance;
+// tolls, tax and gratuity are left out so vehicles compare on the fare alone
 function matchHtml(m) {
-  const total = (label) => (m.candidates || []).find(c => c.label === label)?.total;
-  const retail = total('Retail');
-  const affiliate = total('Affiliate');
+  const fare = (label) => (m.candidates || []).find(c => c.label === label)?.baseFare;
+  const retail = fare('Retail');
+  const affiliate = fare('Affiliate');
   // hourly rates stand in when the route could not be priced
   const main = retail ? money(retail) : m.rates?.retail ? `${money(m.rates.retail)}/h` : 'No retail rate';
   const sub = affiliate ? `Aff. ${money(affiliate)}` : m.rates?.affiliate ? `Aff. ${money(m.rates.affiliate)}/h` : '';
@@ -747,6 +790,7 @@ function matchHtml(m) {
 function wireSuggest(card, state, rerender) {
   const note = card.querySelector('.bd-suggest-note');
   const wrap = card.querySelector('.bd-candidates');
+  const margin = card.querySelector('.bd-margin');
   const pick = card.querySelector('.bd-basepick');
   const select = card.querySelector('.bd-base-select');
   const go = card.querySelector('.bd-basepick-go');
@@ -789,10 +833,6 @@ function wireSuggest(card, state, rerender) {
       + (r.minimumNote ? `<div class="alert alert-info" style="margin:0 0 .8rem">${esc(r.minimumNote)}</div>` : '');
 
     wrap.innerHTML = res.candidates.map((c, i) => {
-      // with the gratuity left to the customer, the suggested totals leave it out too
-      const total = priceQuote(c.baseFare, c.lineItems.filter(l => !(state.customerTip && isGratuity(l))).map((l, j) => ({
-        id: `s${i}_${j}`, label: l.label, mode: l.mode, value: l.value, basis: l.basis || ['base'],
-      }))).total;
       const p = c.baseFareParts || {};
       // reads as the sum it is: inputs first, result last
       const hrs = `${p.hours} h${p.minimumApplied ? ' minimum' : ''}`;
@@ -802,11 +842,21 @@ function wireSuggest(card, state, rerender) {
       return `
       <button type="button" class="bd-candidate${i === 0 && applyFirst ? ' chosen' : ''}" data-i="${i}">
         <span class="bc-label">${esc(c.label)} · ${money(c.hourlyRate)}/h</span>
-        <span class="bc-total">${money(total)}</span>
+        <span class="bc-total">${money(c.baseFare)}</span>
         <span class="bc-parts">${esc(madeOf)}</span>
         <span class="bc-apply">Use this</span>
       </button>`;
     }).join('');
+
+    // what retail clears over affiliate on the base fares above; trip length and repositioning are the same for both
+    const retail = res.candidates.find(c => c.label === 'Retail');
+    const affiliate = res.candidates.find(c => c.label === 'Affiliate');
+    margin.hidden = !(retail && affiliate);
+    if (retail && affiliate) {
+      const p = retail.baseFareParts || {};
+      margin.innerHTML = `<span class="dm-label">Difference</span><strong>${money(round2(retail.baseFare - affiliate.baseFare))}</strong>`
+        + `<span class="dm-parts">${money(round2(retail.hourlyRate - affiliate.hourlyRate))}/h × ${p.hours} h${p.minimumApplied ? ' minimum' : ''}</span>`;
+    }
 
     wrap.querySelectorAll('.bd-candidate').forEach(el => {
       el.addEventListener('click', () => {
@@ -864,6 +914,7 @@ function wireSuggest(card, state, rerender) {
       rerender();
     }
     wrap.innerHTML = '';
+    margin.hidden = true;
     repo.innerHTML = '';
     note.textContent = matching?.error
       ? `${matching.error}${m ? ' Enter a price manually below.' : ''}`
@@ -919,6 +970,7 @@ function wireSuggest(card, state, rerender) {
       note.classList.add('err');
       showNote();
       wrap.innerHTML = '';
+      margin.hidden = true;
     } finally {
       if (go) go.disabled = false;
       if (again) again.disabled = false;

@@ -721,8 +721,8 @@ function succeed(data) {
   } else if (data.balanceByLink) {
     note = `We've taken ${paid}${fee}. ${money(data.balanceAmount)} is due on the day of your trip, and we'll email you a payment link that morning. A receipt is on its way to your inbox.`;
   } else if (data.remainingBalance > 0) {
-    note = `We've charged ${paid}${fee}. The balance of ${money(data.balanceAmount)}${data.processingFee > 0 ? ' (including the processing fee)' : ''} `
-      + 'will be charged to the same card automatically on arrival of your vehicle. A receipt is on its way to your inbox.';
+    note = `A deposit of ${paid} has been charged to your card. The balance of ${money(data.balanceAmount)} `
+      + 'will be charged to the same card automatically on arrival of the vehicle. A receipt is on its way to your inbox.';
   } else {
     note = `We've charged ${paid}${fee} in full. A receipt is on its way to your inbox.`;
   }

@@ -434,6 +434,17 @@
 .base-delete:hover { border-color: rgba(220,53,69,.5); color: #ff8a95; }
 .bd-candidate .bc-parts { font-size: .7rem; color: var(--muted); }
 
+/* retail less affiliate, under the suggestions */
+.bd-margin {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .6rem;
+  margin: -.35rem 0 .9rem; padding: .45rem .8rem;
+  background: #0f0f0f; border: 1px dashed var(--border); border-radius: var(--radius);
+  font-size: .9rem;
+}
+.bd-margin[hidden] { display: none; }
+.bd-margin .dm-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.bd-margin .dm-parts { flex-basis: 100%; font-size: .7rem; color: var(--muted); }
+
 /* deposit share, set per booking before the quote goes out */
 .bd-deposit { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-top: .8rem; }
 .bd-deposit label { display: flex; align-items: center; gap: .6rem; font-size: .78rem; font-weight: 700;
