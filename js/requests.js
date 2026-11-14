@@ -1135,7 +1135,7 @@ function wireExtraCharge(card, box) {
 
   box.querySelectorAll('.btn-confirm-charge').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!window.confirm('Confirm that this payment has actually arrived?')) return;
+      if (!await confirmArrived()) return;
       btn.disabled = true;
       try {
         await api(`/api/quotes/${card.dataset.id}/charges/${btn.dataset.charge}/confirm-offline`, { method: 'PATCH' });
@@ -1148,10 +1148,17 @@ function wireExtraCharge(card, box) {
   });
 }
 
+// a confirmed payment emails the customer a receipt, so it must not be confirmed on trust
+const confirmArrived = () => openModal({
+  title: 'Has this payment arrived?',
+  message: 'Only confirm once the money shows in the account. The customer is emailed a receipt straight away.',
+  confirmLabel: 'Yes, it has arrived',
+});
+
 // money that arrived by Zelle or cash is only known to the admin
 function wireConfirmOffline(btn, id, msg) {
   btn.addEventListener('click', async () => {
-    if (!window.confirm('Confirm that this payment has actually arrived?')) return;
+    if (!await confirmArrived()) return;
     btn.disabled = true;
     const original = btn.textContent;
     btn.textContent = 'Confirming…';
