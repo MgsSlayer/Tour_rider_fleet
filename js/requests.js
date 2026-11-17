@@ -249,7 +249,10 @@ function renderCard(q) {
           <div class="cv-meta">${esc(q.customer.email).replace('@', '@<wbr>')}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
         </div>
       </div>
-      <span class="badge badge-${stageOf(q)}">${STAGE_LABELS[stageOf(q)] || esc(q.status)}</span>
+      <div class="req-badges">
+        <span class="badge badge-${stageOf(q)}">${STAGE_LABELS[stageOf(q)] || esc(q.status)}</span>
+        ${q.affiliate?.status ? `<span class="badge badge-owner-${esc(q.affiliate.status)}">${OWNER_LABELS[q.affiliate.status]}</span>` : ''}
+      </div>
     </div>
 
     ${hasTrip ? `
@@ -285,6 +288,7 @@ function renderCard(q) {
           ? `${Math.round(q.depositRate * 100)}%${q.figures?.deposit ? ` (${money(q.figures.deposit)} by card)` : ''}`
           : 'Full payment only'}</dd>` : ''}
         ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.figures?.balanceDue ? ` (${money(q.figures.balanceDue)} balance outstanding)` : ''}</dd>` : ''}
+        ${q.affiliate?.status ? `<dt>Owner</dt><dd>${esc(q.affiliate.email)} · ${OWNER_LABELS[q.affiliate.status].toLowerCase()}${q.affiliate.declineReason ? ` — “${esc(q.affiliate.declineReason)}”` : ''}</dd>` : ''}
         ${q.declineReason ? `<dt>Declined</dt><dd>${esc(q.declineReason)}</dd>` : ''}
       </dl>
     </div>
@@ -550,6 +554,13 @@ function extraChargesHtml(q) {
 // a paid booking is either still owed its balance or settled; the badge tells them apart
 const owesBalance = (q) => q.paymentOption === 'deposit' && Number(q.remainingBalance) > 0 && !q.remainingBalancePaid;
 const stageOf = (q) => (q.status === 'paid' ? (owesBalance(q) ? 'deposit_paid' : 'paid_in_full') : q.status);
+// the vehicle owner's answer to the availability email; it never stops the admin from pricing
+const OWNER_LABELS = {
+  pending: 'Waiting for owner',
+  accepted: 'Owner available',
+  declined: 'Owner not available',
+};
+
 const STAGE_LABELS = {
   pending: 'pending',
   accepted: 'accepted',

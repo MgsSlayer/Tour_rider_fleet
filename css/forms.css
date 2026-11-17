@@ -264,6 +264,17 @@
 .badge-deposit_paid { background: rgba(90,160,255,.15); color: #8ab8ff; }
 .badge-paid_in_full { background: rgba(40,167,69,.28); color: #4ade80; }
 .badge-awaiting_payment { background: rgba(245,166,35,.15); color: var(--accent); }
+/* the vehicle owner's accept or decline page */
+.avail-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.avail-actions .btn-submit, .avail-actions .btn { flex: 1 1 180px; margin: 0; }
+
+/* the vehicle owner's answer sits under the booking's own stage */
+.req-badges { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; }
+/* once the card header wraps on a phone, the badges sit side by side under the name */
+@media (max-width: 640px) { .req-badges { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .5rem; } }
+.badge-owner-pending  { background: rgba(245,166,35,.15); color: var(--accent); }
+.badge-owner-accepted { background: rgba(40,167,69,.15); color: #7ee29b; }
+.badge-owner-declined { background: rgba(220,53,69,.15); color: #ff8a95; }
 /* the charge button has its own class: sharing .btn-confirm would also confirm the booking's payment */
 .btn-confirm, .btn-confirm-charge {
   background: rgba(40,167,69,.15); color: #7ee29b; border: 1px solid rgba(40,167,69,.4);
