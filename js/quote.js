@@ -1,4 +1,4 @@
-// Quote request form. Vehicle comes from ?sn=; without one we fall back to a picker.
+// Quote request form for the vehicle in ?sn=; without one the customer is sent to the custom quote form.
 // custom-quote.html reuses it with no vehicle at all — the admin matches one later.
 
 let chosenVehicle = null;
@@ -13,18 +13,9 @@ async function init() {
 
   if (!OPEN_REQUEST) {
     try {
-      const vehicles = await fetchVehicles();
-      if (sn) {
-        chosenVehicle = vehicles.find(v => v.sn === sn) || null;
-        if (!chosenVehicle) {
-          showAlert('That vehicle could not be found. Pick another from the fleet.');
-          showPicker(vehicles);
-        } else {
-          renderChosen(chosenVehicle);
-        }
-      } else {
-        showPicker(vehicles);
-      }
+      chosenVehicle = sn ? (await fetchVehicles()).find(v => v.sn === sn) : null;
+      if (!chosenVehicle) return window.location.replace('custom-quote.html');
+      renderChosen(chosenVehicle);
     } catch (err) {
       showAlert(`Could not load vehicle details: ${escHtml(err.message)}`);
     }
@@ -256,19 +247,6 @@ function renderChosen(v) {
   }
 }
 
-function showPicker(vehicles) {
-  const wrap = document.getElementById('vehicle-picker');
-  const select = document.getElementById('vehicle-select');
-  select.innerHTML = '<option value="">Select a vehicle…</option>' +
-    vehicles.map(v => `<option value="${escHtml(v.sn)}">${escHtml(vehicleTitle(v))}${v.capacity ? ` — ${escHtml(v.capacity)} pax` : ''}</option>`).join('');
-  select.addEventListener('change', () => {
-    chosenVehicle = vehicles.find(v => v.sn === select.value) || null;
-    if (chosenVehicle) renderChosen(chosenVehicle);
-    syncMinTrip();
-  });
-  wrap.style.display = 'block';
-}
-
 function showAlert(msg, kind = 'error') {
   const el = document.getElementById('alert');
   el.className = `alert alert-${kind}`;
@@ -286,7 +264,7 @@ async function onSubmit(e) {
   const btn = document.getElementById('submit-btn');
   const form = e.target;
 
-  if (!OPEN_REQUEST && !chosenVehicle) return showAlert('Please choose a vehicle first.');
+  if (!OPEN_REQUEST && !chosenVehicle) return showAlert('This vehicle could not be loaded. Please refresh the page and try again.');
   if (!form.checkValidity()) return showAlert('Please fill in all the required fields.');
 
   const val = (id) => document.getElementById(id).value.trim();
