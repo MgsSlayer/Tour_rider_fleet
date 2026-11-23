@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complete Your Booking — Tour Rider</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/png" href="css/logo_tour_ride-removebg-preview-1-3-300x175.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/forms.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <a class="logo" href="https://tour-rider.com/">
+      <img src="css/logo_tour_ride-removebg-preview-1-3-300x175.png" alt="Tour Rider" class="logo-img">
+    </a>
+  </div>
+  <div class="header-contact">
+    <div class="header-contact-inner">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg> <a href="mailto:booking@tour-rider.com">booking@tour-rider.com</a></span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.06 11a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 2.98 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/></svg> <a href="tel:+19178222713">917-822-2713</a></span>
+    </div>
+  </div>
+</header>
+
+<div class="form-wrap">
+  <div class="form-card">
+    <div id="loading" class="state-msg">Loading your quote…</div>
+
+    <div id="error-state" style="display:none">
+      <div class="alert alert-error" id="error-msg"></div>
+      <p class="form-lede">Need help? Email <a href="mailto:booking@tour-rider.com">booking@tour-rider.com</a>.</p>
+    </div>
+
+    <div id="pay-state" style="display:none">
+      <h1>Complete your booking</h1>
+      <p class="form-lede">Your quote has been approved. Choose how you'd like to pay.</p>
+
+      <div class="trip-summary">
+        <dl id="trip-details"></dl>
+      </div>
+
+      <div class="amount-choice">
+        <label>
+          <input type="radio" name="paymentOption" value="deposit" checked>
+          <div class="ac-label" id="deposit-label">Deposit</div>
+          <div class="ac-amount" id="deposit-amount">—</div>
+          <div class="ac-note">Balance due on arrival</div>
+        </label>
+        <label>
+          <input type="radio" name="paymentOption" value="full">
+          <div class="ac-label">Pay in full</div>
+          <div class="ac-amount" id="full-amount">—</div>
+          <div class="ac-note">Nothing further due</div>
+        </label>
+      </div>
+
+      <!-- shown only when the admin leaves gratuity to the customer; options come from the server -->
+      <div class="gratuity" id="gratuity" hidden>
+        <div class="gratuity-label">Gratuity</div>
+        <div class="radio-group" id="tip-percent" role="radiogroup" aria-label="Gratuity"></div>
+        <div class="radio-group tip-method" role="radiogroup" aria-label="How to pay the gratuity">
+          <label><input type="radio" name="tipMethod" value="online" checked><span>Add to my payment</span></label>
+          <label><input type="radio" name="tipMethod" value="cash"><span>Pay my driver in cash</span></label>
+        </div>
+        <p class="tip-note" id="tip-note" hidden></p>
+      </div>
+
+      <label class="terms-row" for="accept-terms">
+        <input type="checkbox" id="accept-terms">
+        <span>I have read and accept the
+          <a href="https://tour-rider.com/terms_conditions/" target="_blank" rel="noopener">
+            Terms and Conditions</a>.</span>
+      </label>
+
+      <div id="pay-error" class="alert alert-error" style="display:none"></div>
+
+      <div id="pay-methods-wrap" class="gated">
+        <div class="pay-methods" id="method-tabs" role="tablist" aria-label="Payment method"></div>
+
+        <!-- depends on the method chosen above, so it sits right under the list -->
+        <div id="deposit-note" class="alert alert-info">
+          Your card will automatically be charged on arrival of your vehicle.
+        </div>
+
+        <div class="fee-summary" id="fee-summary" hidden></div>
+
+        <div class="pay-panel" data-method="card">
+          <div id="card-container"></div>
+          <button id="pay-button" class="btn-submit">Pay <span id="pay-amount"></span></button>
+        </div>
+        <div class="pay-panel" data-method="apple_pay" hidden>
+          <div id="apple-pay-button" class="apple-pay-button" role="button" tabindex="0"
+               aria-label="Pay with Apple Pay"></div>
+        </div>
+        <div class="pay-panel" data-method="google_pay" hidden>
+          <div id="google-pay-button"></div>
+        </div>
+        <div class="pay-panel" data-method="cash_app" hidden>
+          <div id="cash-app-pay"></div>
+        </div>
+        <div class="pay-panel" data-method="paypal" hidden>
+          <div id="paypal-buttons"></div>
+        </div>
+        <div class="pay-panel" data-method="venmo" hidden>
+          <div id="venmo-buttons"></div>
+        </div>
+        <div class="pay-panel" data-method="zelle" hidden>
+          <p class="offline-note">No processing fee. We'll email you the payment details and hold your booking until it arrives.</p>
+          <button type="button" id="zelle-choose" class="btn-submit">Pay by Zelle</button>
+        </div>
+
+        <div id="method-busy" class="state-msg" hidden>Loading…</div>
+      </div>
+
+      <p class="terms-gate-hint" id="terms-gate-hint">Accept the terms above to choose a payment method.</p>
+    </div>
+
+    <div id="done-state" style="display:none">
+      <div class="alert alert-ok"><strong id="done-title">Payment received.</strong> <span id="done-sub">Your ride is confirmed.</span></div>
+      <p class="form-lede" id="done-note"></p>
+      <!-- shown after choosing Zelle; the code identifies the account, not the amount or memo -->
+      <div class="zelle-qr" id="zelle-qr" hidden>
+        <img src="img/pay/zelle-qr.jpg" alt="Zelle QR code" width="300">
+        <p id="zelle-qr-note">Or scan this code in your bank's app. Add your reservation number in the memo.</p>
+      </div>
+      <a href="index.html" class="btn-gold">Back to the fleet</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p>© Tour Rider — NYC Limo &amp; Party Bus Rentals</p>
+</footer>
+
+<script src="config.js"></script>
+<script src="js/payment.js"></script>
+</body>
+</html>

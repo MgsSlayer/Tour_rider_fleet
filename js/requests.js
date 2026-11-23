@@ -1,0 +1,1344 @@
+// Admin review of quote requests. Auth is a server-issued JWT held in sessionStorage.
+
+const TOKEN_KEY = 'trAdminToken';
+const getToken = () => sessionStorage.getItem(TOKEN_KEY);
+const money = (n) => `$${Number(n).toFixed(2)}`;
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+// pre-fills each new quote's deposit; the server sends its default with the list
+let defaultDepositPercent = 20;
+let cardFeeRate = 0.04;
+
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(`${CONFIG.API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (res.status === 401) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    showLogin();
+    throw new Error('Your session expired. Please sign in again.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+// Promise-based replacement for confirm()/prompt().
+// Resolves false/null on cancel; with `input`, resolves the entered text.
+// `details` is an optional list of { label, value, total } rows shown as a two-column summary
+function openModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false, input = null, details = null }) {
+  return new Promise(resolve => {
+    const backdrop = document.getElementById('modal');
+    const field = document.getElementById('modal-field');
+    const box = document.getElementById('modal-input');
+    const error = document.getElementById('modal-error');
+    const confirmBtn = document.getElementById('modal-confirm');
+    const cancelBtn = document.getElementById('modal-cancel');
+
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-message').textContent = message;
+    const summary = document.getElementById('modal-details');
+    summary.hidden = !details;
+    summary.innerHTML = (details || []).map(r =>
+      `<div${r.total ? ' class="total"' : ''}><span>${esc(r.label)}</span><span>${esc(r.value)}</span></div>`).join('');
+    confirmBtn.textContent = confirmLabel;
+    cancelBtn.textContent = cancelLabel;
+    confirmBtn.classList.toggle('danger', danger);
+    error.hidden = true;
+
+    field.hidden = !input;
+    if (input) {
+      document.getElementById('modal-label').textContent = input.label;
+      box.placeholder = input.placeholder || '';
+      box.value = '';
+    }
+
+    backdrop.hidden = false;
+    (input ? box : confirmBtn).focus();
+
+    const close = (result) => {
+      backdrop.hidden = true;
+      document.removeEventListener('keydown', onKey);
+      backdrop.removeEventListener('mousedown', onBackdrop);
+      confirmBtn.onclick = cancelBtn.onclick = null;
+      resolve(result);
+    };
+    const cancelled = () => close(input ? null : false);
+
+    const onConfirm = () => {
+      if (!input) return close(true);
+      const value = box.value.trim();
+      if (input.required && !value) {
+        error.textContent = input.requiredMessage || 'This field is required.';
+        error.hidden = false;
+        box.focus();
+        return;
+      }
+      close(value);
+    };
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') cancelled();
+      // newlines stay available in the textarea; plain Enter confirms
+      if (e.key === 'Enter' && (!input || !e.shiftKey)) { e.preventDefault(); onConfirm(); }
+    };
+    const onBackdrop = (e) => { if (e.target === backdrop) cancelled(); };
+
+    confirmBtn.onclick = onConfirm;
+    cancelBtn.onclick = cancelled;
+    document.addEventListener('keydown', onKey);
+    backdrop.addEventListener('mousedown', onBackdrop);
+  });
+}
+
+function showLogin() {
+  document.getElementById('dash-view').style.display = 'none';
+  document.getElementById('logout-link').style.display = 'none';
+  document.getElementById('login-view').style.display = 'block';
+}
+
+function showDash() {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('dash-view').style.display = 'block';
+  document.getElementById('logout-link').style.display = 'inline';
+}
+
+async function onLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  try {
+    const res = await fetch(`${CONFIG.API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('login-email').value.trim(),
+        password: document.getElementById('login-password').value,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Sign in failed');
+
+    sessionStorage.setItem(TOKEN_KEY, data.token);
+    document.getElementById('login-password').value = '';
+    showDash();
+    loadRequests();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+}
+
+// sheet rates, keyed by S/N — fetched once and reused for suggestions
+let vehicleRates = null;
+const METHOD_LABELS = {
+  card: 'Card', apple_pay: 'Apple Pay', google_pay: 'Google Pay', cash_app: 'Cash App',
+  paypal: 'PayPal', venmo: 'Venmo', zelle: 'Zelle', cash: 'Cash',
+};
+
+const cardCoords = {};
+const cardAddresses = {};
+const cardRoutes = {};   // encoded polylines from the price suggestion
+const cardMatching = {}; // fleet vehicles matched to an open request, priced server-side
+
+// mirrors CATEGORIES and CITIES in backend/src/services/fleetService.js
+const WANTS_LABELS = {
+  any: 'Any vehicle', 'party-bus': 'Party bus', 'van-bus': 'Van, bus or coach', 'limo-suv': 'Limo, SUV or sedan',
+  nynj: 'NY/NJ', miami: 'Miami',
+};
+const wantsLabel = (w = {}) => [WANTS_LABELS[w.category], WANTS_LABELS[w.city]].filter(Boolean).join(' · ');
+async function loadVehicleRates() {
+  if (vehicleRates) return vehicleRates;
+  vehicleRates = {};
+  try {
+    (await api('/api/vehicles/rates')).vehicles.forEach(v => {
+      vehicleRates[v.sn] = {
+        retail: parseFloat(String(v.retprice).replace(/[^0-9.]/g, '')) || '',
+        affiliate: parseFloat(String(v.affprice).replace(/[^0-9.]/g, '')) || '',
+        pics: (v.pics || '').split('|').map(u => u.trim()).filter(Boolean),
+      };
+    });
+  } catch (e) {
+    console.warn('could not load fleet rates:', e.message);
+  }
+  return vehicleRates;
+}
+
+// stops in route order; bookings from before multiple stops kept one stopoverAddress
+function tripStops(q) {
+  if (q.stopovers?.length) return q.stopovers.map(s => ({ address: s.address, coords: s.coords }));
+  return q.stopoverAddress ? [{ address: q.stopoverAddress, coords: q.coords?.stopover }] : [];
+}
+
+async function loadRequests() {
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="state-msg">Loading…</div>';
+  const status = document.getElementById('status-filter').value;
+
+  try {
+    const [{ quotes, depositPercent, cardFeeRate: rate }] = await Promise.all([
+      api(`/api/quotes${status ? `?status=${status}` : ''}`),
+      loadVehicleRates(),
+    ]);
+    if (depositPercent) defaultDepositPercent = depositPercent;
+    if (Number.isFinite(rate)) cardFeeRate = rate;
+    document.getElementById('dash-sub').textContent =
+      `${quotes.length} ${status ? (STAGE_LABELS[status] || status) : 'total'} request${quotes.length === 1 ? '' : 's'}`;
+
+    if (!quotes.length) {
+      list.innerHTML = '<div class="state-msg">Nothing here right now.</div>';
+      return;
+    }
+    quotes.forEach((q) => {
+      // keyed the way the trip map reads them: pickup, stop1…stop5, dropoff
+      cardCoords[q._id] = { pickup: q.coords?.pickup, dropoff: q.coords?.dropoff };
+      cardAddresses[q._id] = { pickup: q.pickupAddress, dropoff: q.dropoffAddress };
+      tripStops(q).forEach((stop, i) => {
+        cardCoords[q._id][`stop${i + 1}`] = stop.coords;
+        cardAddresses[q._id][`stop${i + 1}`] = stop.address;
+      });
+      if (q.kind === 'open') cardMatching[q._id] = q.matching || null;
+    });
+    list.innerHTML = quotes.map(renderCard).join('');
+    wireCards();
+  } catch (err) {
+    list.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+  }
+}
+
+function renderCard(q) {
+  const created = new Date(q.createdAt).toLocaleString();
+  const isPending = q.status === 'pending';
+  const isOpen = q.kind === 'open';
+  const rates = (vehicleRates || {})[q.vehicle?.sn] || { retail: '', affiliate: '', pics: [] };
+  const hasTrip = !!(q.pickupAddress && q.dropoffAddress);
+
+  return `
+  <div class="req-card" data-id="${q._id}" data-kind="${isOpen ? 'open' : 'vehicle'}" data-email="${esc(q.customer.email)}"
+       data-retail="${esc(rates.retail)}" data-affiliate="${esc(rates.affiliate)}">
+    <div class="req-head">
+      <div class="req-who">
+        <img class="req-vehicle-pic${(rates.pics || []).length ? ' clickable' : ''}"
+             src="${esc((rates.pics || [])[0] || 'css/placeholder.svg')}"
+             alt="${esc(q.vehicle?.name || 'Vehicle')}" loading="lazy"
+             title="${(rates.pics || []).length > 1 ? `View all ${rates.pics.length} photos` : 'View photo'}"
+             data-sn="${esc(q.vehicle?.sn || '')}"
+             onerror="this.src='css/placeholder.svg'">
+        <div>
+          <h3>${esc(q.customer.name)}${q.reservationNumber ? ` <span class="req-ref">${esc(q.reservationNumber)}</span>` : ''}</h3>
+          <div class="req-vehicle-name">${isOpen && !q.vehicle?.sn
+            ? `Open request · ${esc(wantsLabel(q.wants))}`
+            : `${esc(q.vehicle?.name || q.vehicle?.type || 'Vehicle')}${q.vehicle?.sn ? ` · S/N ${esc(q.vehicle.sn)}` : ''}`}</div>
+          <div class="cv-meta">${esc(q.customer.email).replace('@', '@<wbr>')}${q.customer.phone ? ` · ${esc(q.customer.phone)}` : ''}</div>
+        </div>
+      </div>
+      <div class="req-badges">
+        <span class="badge badge-${stageOf(q)}">${STAGE_LABELS[stageOf(q)] || esc(q.status)}</span>
+        ${q.affiliate?.status ? `<span class="badge badge-owner-${esc(q.affiliate.status)}">${OWNER_LABELS[q.affiliate.status]}</span>` : ''}
+      </div>
+    </div>
+
+    ${hasTrip ? `
+    <div class="req-map-wrap">
+      <button type="button" class="req-map-btn">View trip on map</button>
+      <div class="trip-map" hidden></div>
+      <div class="map-key" hidden>
+        <span><i class="pin pin-a"></i> Pick-up</span>
+        ${tripStops(q).length ? '<span><i class="pin pin-b"></i> Stop-overs</span>' : ''}
+        <span><i class="pin pin-c"></i> Drop-off</span>
+        <span><i class="pin pin-route"></i> Route</span>
+      </div>
+    </div>` : ''}
+
+    <div class="trip-summary" style="margin:1rem 0 0">
+      <dl>
+        ${isOpen ? `<dt>Wanted</dt><dd>${esc(wantsLabel(q.wants))}</dd>` : ''}
+        <dt>Trip</dt><dd>${esc(q.tripType)} · ${q.passengers} passengers</dd>
+        <dt>Date</dt><dd>${esc(q.date)} ${esc(q.pickupTime)}${q.finalDropoffTime ? ` → ${esc(q.finalDropoffTime)}` : ''}</dd>
+        <dt>Pick-up</dt><dd>${esc(q.pickupAddress)}</dd>
+        ${tripStops(q).map((stop, i, all) =>
+          `<dt>${all.length > 1 ? `Stop ${i + 1}` : 'Stop over'}</dt><dd>${esc(stop.address)}</dd>`).join('')}
+        <dt>Drop-off</dt><dd>${esc(q.dropoffAddress)}</dd>
+        ${q.message ? `<dt>Message</dt><dd>${esc(q.message)}</dd>` : ''}
+        <dt>Received</dt><dd>${esc(created)}</dd>
+        ${q.quotedAmount ? `<dt>Quoted</dt><dd>${quotedSummary(q)}</dd>` : ''}
+        ${q.paymentMethod ? `<dt>Method</dt><dd>${esc(METHOD_LABELS[q.paymentMethod] || q.paymentMethod)}${
+          q.processingFee > 0 ? ` · ${money(q.processingFee)} fee` : ' · no fee'}</dd>` : ''}
+        ${q.gratuity?.customerChooses ? `<dt>Gratuity</dt><dd>${q.gratuity.method
+          ? `${q.gratuity.percent}% (${money(q.gratuity.amount)}), ${q.gratuity.method === 'online' ? 'added online' : 'cash to driver'}`
+          : 'Customer chooses at checkout'}</dd>` : ''}
+        ${q.quotedAmount && q.depositRate ? `<dt>Deposit</dt><dd>${q.depositRate < 1
+          ? `${Math.round(q.depositRate * 100)}%${q.figures?.deposit ? ` (${money(q.figures.deposit)} by card)` : ''}`
+          : 'Full payment only'}</dd>` : ''}
+        ${q.amountPaid ? `<dt>Paid</dt><dd>${money(q.amountPaid)}${q.figures?.balanceDue ? ` (${money(q.figures.balanceDue)} balance outstanding)` : ''}</dd>` : ''}
+        ${q.affiliate?.status ? `<dt>Owner</dt><dd>${esc(q.affiliate.email)} · ${OWNER_LABELS[q.affiliate.status].toLowerCase()}${q.affiliate.declineReason ? ` — “${esc(q.affiliate.declineReason)}”` : ''}</dd>` : ''}
+        ${q.declineReason ? `<dt>Declined</dt><dd>${esc(q.declineReason)}</dd>` : ''}
+      </dl>
+    </div>
+
+    ${q.status === 'awaiting_payment' || (q.offlineChosenAt && q.status === 'paid' && q.remainingBalance > 0 && !q.remainingBalancePaid) ? `
+    <div class="req-actions">
+      <button class="btn-confirm" data-confirm="${q._id}">Confirm ${esc(METHOD_LABELS[q.paymentMethod] || 'offline')} payment received</button>
+    </div>
+    <div class="card-msg"></div>` : ''}
+
+    ${q.status === 'paid' && q.paymentOption === 'deposit'
+        && q.remainingBalance > 0 && !q.remainingBalancePaid ? `
+    <div class="req-actions">
+      <button class="btn-charge" data-amount="${money(q.figures.balanceDue)}">Charge balance now (${money(q.figures.balanceDue)})</button>
+    </div>
+    <div class="card-msg"></div>` : ''}
+
+    ${q.status === 'paid' ? extraChargesHtml(q) : ''}
+
+    ${isPending ? `
+    <div class="req-actions">
+      <div class="breakdown">
+        ${isOpen ? `
+        <div class="bd-matches">
+          <div class="bd-matches-head">
+            <span>Vehicles that fit</span>
+            <button type="button" class="bd-matches-refresh">Check the fleet again</button>
+          </div>
+          <div class="bd-match-list"></div>
+        </div>` : ''}
+        <div class="bd-suggest">
+          <span class="bd-suggest-note">Working out a suggested price…</span>
+        </div>
+        <div class="bd-basepick" hidden>
+          <label>Departing from
+            <select class="bd-base-select"></select>
+          </label>
+          <button type="button" class="bd-basepick-go">Recalculate</button>
+        </div>
+        <div class="bd-reposition"></div>
+        <div class="bd-candidates"></div>
+        <div class="bd-margin" hidden></div>
+
+        <div class="bd-row bd-base">
+          <span class="bd-label">Base fare</span>
+          <div class="amount-input">
+            <span class="amount-prefix" aria-hidden="true">$</span>
+            <input type="number" class="quote-input" placeholder="0.00" min="0.01" step="0.01"
+                   aria-label="Base fare in US dollars">
+            <span class="amount-suffix" aria-hidden="true">USD</span>
+          </div>
+        </div>
+
+        <div class="bd-lines"></div>
+
+        <div class="bd-add">
+          <span>Add:</span>
+          <button type="button" class="bd-chip" data-preset="Tolls">Tolls</button>
+          <button type="button" class="bd-chip" data-preset="Gratuity">Gratuity</button>
+          <button type="button" class="bd-chip" data-preset="Sales tax">Sales tax</button>
+          <button type="button" class="bd-chip" data-preset="">Custom</button>
+        </div>
+
+        <div class="bd-total"><span>Total</span><strong class="bd-total-value">$0.00</strong></div>
+
+        <div class="bd-deposit">
+          <label>Deposit
+            <span class="bd-deposit-input">
+              <input type="number" class="bd-deposit-pct" min="1" max="100" step="1"
+                     value="${defaultDepositPercent}" aria-label="Deposit percentage">
+              <span aria-hidden="true">%</span>
+            </span>
+          </label>
+          <span class="bd-deposit-note"></span>
+        </div>
+        <label class="bd-tip">
+          <input type="checkbox" class="bd-tip-toggle">
+          <span>Let customer choose gratuity</span>
+        </label>
+        <div class="bd-tip-basis bd-basis" hidden></div>
+        <div class="bd-tip-note"></div>
+      </div>
+    </div>
+    <div class="req-actions">
+      <button class="btn-accept">${isOpen ? 'Send vehicle &amp; price' : 'Accept &amp; send quote'}</button>
+      <button class="btn-decline">Decline</button>
+    </div>
+    <div class="card-msg"></div>` : ''}
+  </div>`;
+}
+
+// Mirrors backend/src/helpers/pricing.js. Preview only — the server recomputes
+// and its total is what gets stored and charged.
+function priceQuote(baseFare, lines) {
+  const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  const base = Number(baseFare) || 0;
+  const amounts = new Map();
+
+  const priced = lines.map(l => {
+    const value = Number(l.value) || 0;
+    let amount;
+    if (l.mode === 'percent') {
+      const basis = l.basis.length ? l.basis : ['base'];
+      const sum = basis.reduce((t, ref) =>
+        t + (ref === 'base' ? base : (amounts.get(ref) || 0)), 0);
+      amount = round2(sum * value / 100);
+    } else {
+      amount = round2(value);
+    }
+    amounts.set(l.id, amount);
+    return { ...l, amount };
+  });
+
+  return { base, priced, total: round2(base + priced.reduce((s, l) => s + l.amount, 0)) };
+}
+
+// what the customer's 10, 15 or 20% is worked out on: the base fare and/or any line in the quote
+function renderTipBasis(card, state) {
+  const box = card.querySelector('.bd-tip-basis');
+  if (!box) return;
+  box.hidden = !state.customerTip;
+  if (!state.customerTip) return;
+  // a line that has been removed can no longer be part of it
+  state.tipBasis = state.tipBasis.filter(id => id === 'base' || state.lines.some(l => l.id === id));
+  if (!state.tipBasis.length) state.tipBasis = ['base'];
+  const options = [{ id: 'base', label: 'Base fare' }, ...state.lines.map(l => ({ id: l.id, label: l.label || 'Untitled' }))];
+  box.innerHTML = `of ${options.map(o => `
+    <label><input type="checkbox" value="${esc(o.id)}"${state.tipBasis.includes(o.id) ? ' checked' : ''}> ${esc(o.label)}</label>`).join('')}`;
+}
+
+const tipBasisLabel = (state) => state.tipBasis
+  .map(id => (id === 'base' ? 'base fare' : (state.lines.find(l => l.id === id)?.label || 'Untitled')))
+  .join(' + ');
+
+// the three amounts the customer will be offered, for the admin's eye
+function refreshTipNote(card, state) {
+  const note = card.querySelector('.bd-tip-note');
+  if (!note) return;
+  if (!state.customerTip || !Number(state.base)) { note.textContent = ''; return; }
+  const { base, priced } = priceQuote(state.base, state.lines);
+  const basis = state.tipBasis.reduce((sum, id) => sum + (id === 'base' ? base : (priced.find(l => l.id === id)?.amount || 0)), 0);
+  note.textContent = [10, 15, 20].map(p => `${p}% ${money(round2(basis * p / 100))}`).join(' · ');
+}
+
+// sales tax is charged on the fare, never on gratuity; the server refuses it too
+const TAX_LABEL = /\btax\b/i;
+const GRATUITY_LABEL = /\b(gratuity|tips?)\b/i;
+const taxOnGratuity = (line, other) => TAX_LABEL.test(line.label) && GRATUITY_LABEL.test(other?.label || '');
+
+function renderLines(card, state) {
+  const wrap = card.querySelector('.bd-lines');
+  state.lines.forEach(l => {
+    l.basis = l.basis.filter(id => !taxOnGratuity(l, state.lines.find(o => o.id === id)));
+    if (!l.basis.length) l.basis = ['base'];
+  });
+  const { base, priced, total } = priceQuote(state.base, state.lines);
+
+  wrap.innerHTML = priced.map((l, i) => {
+    // a percentage can only build on the base fare or a line above it
+    const options = [{ id: 'base', label: 'Base fare' }]
+      .concat(priced.slice(0, i).map(p => ({ id: p.id, label: p.label || 'Untitled' })))
+      .filter(o => !taxOnGratuity(l, o));
+
+    return `
+    <div class="bd-row bd-line" data-id="${l.id}">
+      <input class="bd-name" type="text" value="${esc(l.label)}" placeholder="Label" aria-label="Line label">
+      <select class="bd-mode" aria-label="Amount or percentage">
+        <option value="amount" ${l.mode === 'amount' ? 'selected' : ''}>$</option>
+        <option value="percent" ${l.mode === 'percent' ? 'selected' : ''}>%</option>
+      </select>
+      <input class="bd-value" type="number" min="0" step="0.01" value="${l.value === '' ? '' : esc(l.value)}"
+             placeholder="0" aria-label="Value">
+      <span class="bd-amount">${money(l.amount)}</span>
+      <button type="button" class="bd-remove" aria-label="Remove line">&times;</button>
+      ${l.mode === 'percent' ? `
+      <div class="bd-basis">of
+        ${options.map(o => `
+        <label><input type="checkbox" value="${esc(o.id)}"
+          ${(l.basis.length ? l.basis : ['base']).includes(o.id) ? 'checked' : ''}> ${esc(o.label)}</label>`).join('')}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  renderTipBasis(card, state);
+  refreshTotals(card, state);
+}
+
+/**
+ * Updates the computed figures without touching the DOM structure.
+ * Rebuilding rows on every keystroke destroys the input being typed into, which
+ * drops focus and closes the keyboard on mobile.
+ */
+function refreshTotals(card, state) {
+  const { base, priced, total } = priceQuote(state.base, state.lines);
+
+  priced.forEach(l => {
+    const row = card.querySelector(`.bd-line[data-id="${l.id}"]`);
+    if (row) row.querySelector('.bd-amount').textContent = money(l.amount);
+    // later lines may use this one as a percentage basis — keep those labels honest
+    card.querySelectorAll(`.bd-basis input[value="${l.id}"]`).forEach(cb => {
+      const text = cb.parentElement.lastChild;
+      if (text && text.nodeType === 3) text.textContent = ` ${l.label || 'Untitled'}`;
+    });
+  });
+
+  card.querySelector('.bd-total-value').textContent = money(total);
+  card.querySelector('.bd-total').classList.toggle('empty', !base);
+  state.total = total;
+  refreshDeposit(card, state);
+  refreshTipNote(card, state);
+}
+
+const isGratuity = (line) => /gratuity/i.test(line.label || '');
+// what unticking "customer chooses" adds when the quote had no gratuity of its own; the suggestions' default rate
+const DEFAULT_GRATUITY_PERCENT = 20;
+
+const CHARGE_LABELS = { damage: 'Damage', cleaning: 'Cleaning', other: 'Other' };
+
+function chargeState(x) {
+  if (x.status === 'charged') return 'Charged to card';
+  if (x.status === 'paid') return `Paid${x.method ? ` by ${METHOD_LABELS[x.method] || x.method}` : ''}`;
+  if (x.offlineChosenAt) return `Awaiting ${METHOD_LABELS[x.method] || 'Zelle'} payment`;
+  return `Payment link sent${x.failureReason ? ' (card declined)' : ''}`;
+}
+
+// charges added after the trip, and the form to add one; a card on file is charged at once
+function extraChargesHtml(q) {
+  const list = (q.extraCharges || []).map(x => `
+    <div class="xc-item">
+      <div class="xc-what"><strong>${esc(CHARGE_LABELS[x.kind] || 'Other')}</strong> · ${esc(x.description)}</div>
+      <div class="xc-meta">${money(x.total ?? x.amount)} · ${esc(chargeState(x))}</div>
+      ${x.status === 'awaiting_payment' && x.offlineChosenAt
+        ? `<button type="button" class="btn-confirm-charge" data-charge="${esc(x._id)}">Confirm ${esc(METHOD_LABELS[x.method] || 'Zelle')} payment received</button>`
+        : ''}
+    </div>`).join('');
+  const onCard = !!q.squareCardId;
+  return `
+    <div class="xc" data-card="${onCard ? '1' : ''}" data-rate="${esc(q.processingFeeRate || 0)}">
+      ${list ? `<div class="xc-head">Additional charges</div>${list}` : ''}
+      <button type="button" class="btn-xc-open">+ Add damage / cleaning charge</button>
+      <form class="xc-form" hidden>
+        <div class="xc-fields">
+          <select class="xc-kind" aria-label="Charge type">
+            <option value="damage">Damage</option>
+            <option value="cleaning">Cleaning</option>
+            <option value="other">Other</option>
+          </select>
+          <input type="number" class="xc-amount" min="0.01" max="10000" step="0.01" placeholder="Amount ($)" aria-label="Amount in US dollars">
+        </div>
+        <input type="text" class="xc-desc" maxlength="500" placeholder="What happened (the customer will see this)" aria-label="Description">
+        <p class="xc-how">${onCard
+          ? `Card on file until ${esc(new Date(q.cardReleaseAt).toLocaleString())}: it is charged straight away, plus the processing fee.`
+          : 'No card on file: the customer is emailed an invoice with a payment link.'}</p>
+        <div class="req-actions">
+          <button type="submit" class="xc-submit">${onCard ? 'Charge card' : 'Send invoice'}</button>
+          <button type="button" class="xc-cancel">Cancel</button>
+        </div>
+      </form>
+      <div class="xc-msg"></div>
+    </div>`;
+}
+
+// a paid booking is either still owed its balance or settled; the badge tells them apart
+const owesBalance = (q) => q.paymentOption === 'deposit' && Number(q.remainingBalance) > 0 && !q.remainingBalancePaid;
+const stageOf = (q) => (q.status === 'paid' ? (owesBalance(q) ? 'deposit_paid' : 'paid_in_full') : q.status);
+// the vehicle owner's answer to the availability email; it never stops the admin from pricing
+const OWNER_LABELS = {
+  pending: 'Waiting for owner',
+  accepted: 'Owner available',
+  declined: 'Owner not available',
+};
+
+const STAGE_LABELS = {
+  pending: 'pending',
+  accepted: 'accepted',
+  awaiting_payment: 'awaiting payment',
+  deposit_paid: 'deposit paid',
+  paid_in_full: 'paid in full',
+  declined: 'declined',
+};
+
+// the quote's lines down to the grand total; the server works out the fee and total
+function quotedSummary(q) {
+  const f = q.figures;
+  const rows = (q.lineItems || []).length
+    ? [['Base fare', q.baseFare], ...q.lineItems.map(l => [l.label, l.amount]), ['Subtotal', q.quotedAmount]]
+    : [['Subtotal', q.quotedAmount]];
+  if (f?.fee) rows.push([f.byCard ? 'Card processing fee' : 'Processing fee', f.fee]);
+  if (q.gratuity?.method === 'online') rows.push([`Gratuity (${q.gratuity.percent}%)`, q.gratuity.amount]);
+  return `<div class="bd-summary">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><span>${money(v)}</span></div>`).join('')}`
+    + (f ? `<div class="total"><span>${f.byCard ? 'Total by card' : 'Total'}</span><span>${money(f.total)}</span></div>` : '')
+    + '</div>';
+}
+
+const depositPercentOf = (card) => Number(card.querySelector('.bd-deposit-pct')?.value);
+const validDepositPercent = (pct) => Number.isInteger(pct) && pct >= 1 && pct <= 100;
+
+// the card price the quote email will show; mirrors the server's priceBooking so the two never differ
+function cardPrice(total, pct) {
+  const fee = round2(total * cardFeeRate);
+  const grand = round2(total + fee);
+  const deposit = pct < 100 ? round2(grand * pct / 100) : null;
+  return { fee, grand, deposit, balance: deposit === null ? null : round2(grand - deposit) };
+}
+
+// what the customer will be asked for now, and what is left for later
+function refreshDeposit(card, state) {
+  const note = card.querySelector('.bd-deposit-note');
+  if (!note) return;
+  const pct = depositPercentOf(card);
+  if (!validDepositPercent(pct)) {
+    note.textContent = 'Enter a whole number from 1 to 100.';
+  } else if (pct === 100) {
+    note.textContent = 'Full payment only, no deposit option.';
+  } else if (!state.total) {
+    note.textContent = '';
+  } else {
+    const { deposit, balance } = cardPrice(state.total, pct);
+    note.textContent = `By card: ${money(deposit)} now · ${money(balance)} balance`;
+  }
+}
+
+function wireBreakdown(card) {
+  const state = { base: '', lines: [], total: 0, seq: 0, tipBasis: ['base'] };
+  const rerender = () => renderLines(card, state);
+
+  const baseInput = card.querySelector('.quote-input');
+
+  baseInput.addEventListener('input', e => {
+    state.base = e.target.value;
+    state.touched = true;          // a suggestion must never overwrite this
+    refreshTotals(card, state);
+  });
+
+  card.querySelector('.bd-deposit-pct').addEventListener('input', () => refreshDeposit(card, state));
+
+  // the $ and USD labels sit over the field — make the whole box focus it
+  card.querySelector('.amount-input').addEventListener('click', () => baseInput.focus());
+
+  card.querySelectorAll('.bd-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const preset = chip.dataset.preset;
+      state.lines.push({
+        id: `l${++state.seq}`,
+        label: preset,
+        // tolls are a pass-through cost; gratuity and sales tax are normally rates
+        mode: preset === 'Tolls' || preset === '' ? 'amount' : 'percent',
+        value: '',
+        basis: ['base'],
+      });
+      rerender();
+      const last = card.querySelector('.bd-line:last-child .bd-name');
+      if (!preset && last) last.focus();
+    });
+  });
+
+  const lines = card.querySelector('.bd-lines');
+  const find = el => state.lines.find(l => l.id === el.closest('.bd-line').dataset.id);
+
+  lines.addEventListener('input', e => {
+    const line = find(e.target);
+    if (!line) return;
+    if (e.target.classList.contains('bd-name')) line.label = e.target.value;
+    else if (e.target.classList.contains('bd-value')) line.value = e.target.value;
+    else return;
+    refreshTotals(card, state);   // never rerender here — it would steal focus
+  });
+
+  lines.addEventListener('change', e => {
+    const line = find(e.target);
+    if (!line) return;
+    if (e.target.classList.contains('bd-mode')) { line.mode = e.target.value; rerender(); }
+    if (e.target.type === 'checkbox') {
+      const boxes = [...e.target.closest('.bd-basis').querySelectorAll('input:checked')];
+      line.basis = boxes.length ? boxes.map(b => b.value) : ['base'];
+      rerender();
+    }
+    // checked on leaving the field, so typing "0.5" or "15" never trips it halfway
+    if (e.target.classList.contains('bd-value') && isGratuity(line) && !(Number(line.value) > 0)) offerCustomerTip();
+  });
+
+  const removeLine = (id) => {
+    state.lines = state.lines.filter(l => l.id !== id);
+    // drop references to a line that no longer exists
+    state.lines.forEach(l => {
+      l.basis = l.basis.filter(b => b !== id);
+      if (!l.basis.length) l.basis = ['base'];
+    });
+  };
+
+  // the customer picks the gratuity at checkout, so the quote must not carry one too
+  const tipToggle = card.querySelector('.bd-tip-toggle');
+  // gratuity lines taken off when the customer is given the choice, with where they sat, so undoing it puts them back
+  let setAside = [];
+  const setCustomerTip = (on, removed = []) => {
+    state.customerTip = on;
+    tipToggle.checked = on;
+    if (on) {
+      setAside = [...removed, ...state.lines.filter(isGratuity).map(line => ({ line, index: state.lines.indexOf(line) }))]
+        .filter(t => Number(t.line.value) > 0)
+        .sort((a, b) => a.index - b.index);
+      state.lines.filter(isGratuity).forEach(l => removeLine(l.id));
+    } else {
+      const back = setAside.length ? setAside : [{
+        line: { id: `l${++state.seq}`, label: 'Gratuity', mode: 'percent', value: DEFAULT_GRATUITY_PERCENT, basis: ['base'] },
+        index: state.lines.length,
+      }];
+      back.forEach(({ line, index }) => {
+        // a line it was worked out on may have gone in the meantime
+        line.basis = line.basis.filter(id => id === 'base' || state.lines.some(l => l.id === id));
+        if (!line.basis.length) line.basis = ['base'];
+        state.lines.splice(Math.min(index, state.lines.length), 0, line);
+      });
+      setAside = [];
+    }
+    card.querySelector('.bd-chip[data-preset="Gratuity"]').hidden = on;
+    rerender();
+    card.dispatchEvent(new Event('tip-toggle'));
+  };
+  tipToggle.addEventListener('change', () => setCustomerTip(tipToggle.checked));
+
+  // once the quote carries no gratuity, offer to let the customer pick one at checkout instead
+  const offerCustomerTip = async (removed = []) => {
+    if (state.customerTip || state.lines.some(l => isGratuity(l) && Number(l.value) > 0)) return;
+    const yes = await openModal({
+      title: 'Let the customer choose the gratuity?',
+      message: 'This quote no longer has a gratuity. The customer can pick 10%, 15% or 20% at checkout instead.',
+      confirmLabel: 'Let customer choose',
+      cancelLabel: 'No gratuity',
+    });
+    if (yes) setCustomerTip(true, removed);
+  };
+
+  lines.addEventListener('click', e => {
+    if (!e.target.classList.contains('bd-remove')) return;
+    const line = find(e.target);
+    const index = state.lines.indexOf(line);
+    removeLine(line.id);
+    rerender();
+    if (isGratuity(line)) offerCustomerTip([{ line, index }]);
+  });
+
+  card.querySelector('.bd-tip-basis').addEventListener('change', () => {
+    const picked = [...card.querySelectorAll('.bd-tip-basis input:checked')].map(cb => cb.value);
+    state.tipBasis = picked.length ? picked : ['base'];
+    renderTipBasis(card, state);
+    refreshTotals(card, state);
+  });
+
+  wireSuggest(card, state, rerender);
+  rerender();
+  return state;
+}
+
+function wireCharge(card, btn) {
+  const msg = card.querySelector('.card-msg');
+  const id = card.dataset.id;
+  const amount = btn.dataset.amount;
+
+  btn.addEventListener('click', async () => {
+    const confirmed = await openModal({
+      title: 'Charge the remaining balance?',
+      message: `The card ${card.dataset.email} has on file will be charged now.`,
+      confirmLabel: 'Charge now',
+    });
+    if (!confirmed) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Charging…';
+    try {
+      const res = await api(`/api/quotes/${id}/charge-balance`, { method: 'PATCH' });
+      msg.innerHTML = `<div class="alert alert-ok" style="margin:.9rem 0 0">Charged ${money(res.amount)}. The customer has been emailed a receipt.</div>`;
+      setTimeout(loadRequests, 1400);
+    } catch (err) {
+      msg.innerHTML = `<div class="alert alert-error" style="margin:.9rem 0 0">${esc(err.message)}</div>`;
+      btn.disabled = false;
+      btn.textContent = `Charge balance now (${amount || ''})`.trim();
+    }
+  });
+}
+
+// one matched vehicle: retail base fare up front, affiliate beneath, so margin reads at a glance;
+// tolls, tax and gratuity are left out so vehicles compare on the fare alone
+function matchHtml(m) {
+  const fare = (label) => (m.candidates || []).find(c => c.label === label)?.baseFare;
+  const retail = fare('Retail');
+  const affiliate = fare('Affiliate');
+  // hourly rates stand in when the route could not be priced
+  const main = retail ? money(retail) : m.rates?.retail ? `${money(m.rates.retail)}/h` : 'No retail rate';
+  const sub = affiliate ? `Aff. ${money(affiliate)}` : m.rates?.affiliate ? `Aff. ${money(m.rates.affiliate)}/h` : '';
+  return `
+  <button type="button" class="bd-match" data-sn="${esc(m.sn)}">
+    <img src="${esc(m.pic || 'css/placeholder.svg')}" alt="" loading="lazy" onerror="this.src='css/placeholder.svg'">
+    <span class="bm-body">
+      <span class="bm-name">${esc(m.name)}</span>
+      <span class="bm-meta">${esc([m.type, m.capacity ? `${m.capacity} pax` : '', `S/N ${m.sn}`].filter(Boolean).join(' · '))}</span>
+    </span>
+    <span class="bm-price">${esc(main)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+  </button>`;
+}
+
+// Distance-based suggestion. Purely advisory — applying one just fills the
+// editor, and the server still re-prices whatever is finally submitted.
+/**
+ * Prices the trip automatically when the card opens. The result is only ever a
+ * suggestion: it pre-fills the editor, is labelled as such, and every field
+ * stays editable. The server caches per quote, so this costs one route lookup
+ * per request rather than one per page view.
+ */
+function wireSuggest(card, state, rerender) {
+  const note = card.querySelector('.bd-suggest-note');
+  const wrap = card.querySelector('.bd-candidates');
+  const margin = card.querySelector('.bd-margin');
+  const pick = card.querySelector('.bd-basepick');
+  const select = card.querySelector('.bd-base-select');
+  const go = card.querySelector('.bd-basepick-go');
+  const repo = card.querySelector('.bd-reposition');
+  const isOpen = card.dataset.kind === 'open';
+  const list = card.querySelector('.bd-match-list');
+  const again = card.querySelector('.bd-matches-refresh');
+  if (!note) return;
+
+  let bases = [];
+  let matching = null;
+
+  const applyCandidate = (c) => {
+    state.touched = false;         // an explicit pick replaces whatever was there
+    state.base = c.baseFare;
+    state.lines = c.lineItems.filter(l => !(state.customerTip && isGratuity(l))).map(l => ({
+      id: `l${++state.seq}`, label: l.label, mode: l.mode,
+      value: l.value, basis: l.basis || ['base'],
+    }));
+    card.querySelector('.quote-input').value = c.baseFare;
+    rerender();
+  };
+
+  let lastShown = null;
+  const render = (res, applyFirst) => {
+    lastShown = res;
+    const r = res.route;
+    const rep = res.repositioning || {};
+    // the suggestion's Routes call already returned the road path, so the map
+    // can draw it without spending a Directions request
+    if (r.polyline) cardRoutes[card.dataset.id] = r.polyline;
+
+    // the route summary is noise once the figures are on screen; the note area
+    // stays for the loading and failure states only
+    note.textContent = '';
+    note.classList.remove('err');
+    repo.innerHTML = (rep.note
+      ? `<div class="alert alert-${rep.charged ? 'info' : 'ok'}" style="margin:0 0 .8rem">${esc(rep.note)}</div>`
+      : '')
+      + (r.minimumNote ? `<div class="alert alert-info" style="margin:0 0 .8rem">${esc(r.minimumNote)}</div>` : '');
+
+    wrap.innerHTML = res.candidates.map((c, i) => {
+      const p = c.baseFareParts || {};
+      // reads as the sum it is: inputs first, result last
+      const hrs = `${p.hours} h${p.minimumApplied ? ' minimum' : ''}`;
+      const madeOf = p.repositioning > 0
+        ? `${hrs} × ${money(p.hourlyRate)} + ${money(p.repositioning)} repositioning = ${money(c.baseFare)}`
+        : `${hrs} × ${money(p.hourlyRate)} = ${money(c.baseFare)}`;
+      return `
+      <button type="button" class="bd-candidate${i === 0 && applyFirst ? ' chosen' : ''}" data-i="${i}">
+        <span class="bc-label">${esc(c.label)} · ${money(c.hourlyRate)}/h</span>
+        <span class="bc-total">${money(c.baseFare)}</span>
+        <span class="bc-parts">${esc(madeOf)}</span>
+        <span class="bc-apply">Use this</span>
+      </button>`;
+    }).join('');
+
+    // what retail clears over affiliate on the base fares above; trip length and repositioning are the same for both
+    const retail = res.candidates.find(c => c.label === 'Retail');
+    const affiliate = res.candidates.find(c => c.label === 'Affiliate');
+    margin.hidden = !(retail && affiliate);
+    if (retail && affiliate) {
+      const p = retail.baseFareParts || {};
+      margin.innerHTML = `<span class="dm-label">Difference</span><strong>${money(round2(retail.baseFare - affiliate.baseFare))}</strong>`
+        + `<span class="dm-parts">${money(round2(retail.hourlyRate - affiliate.hourlyRate))}/h × ${p.hours} h${p.minimumApplied ? ' minimum' : ''}</span>`;
+    }
+
+    wrap.querySelectorAll('.bd-candidate').forEach(el => {
+      el.addEventListener('click', () => {
+        applyCandidate(res.candidates[Number(el.dataset.i)]);
+        wrap.querySelectorAll('.bd-candidate').forEach(b => b.classList.remove('chosen'));
+        el.classList.add('chosen');
+      });
+    });
+
+    // start from the retail suggestion, but never clobber something already typed
+    if (applyFirst && res.candidates.length && !state.touched) {
+      applyCandidate(res.candidates[0]);
+    } else if (state.touched) {
+      note.textContent = 'Your edits were kept.';
+    }
+  };
+
+  // The field stays locked only while a suggestion is in flight, so an arriving
+  // result can't overwrite something half-typed. It unlocks either way.
+  const baseInput = card.querySelector('.quote-input');
+  const showNote = () => card.querySelector('.bd-suggest')
+    .classList.toggle('empty', !note.textContent.trim());
+
+  const setBaseLocked = (locked) => {
+    baseInput.disabled = locked;
+    baseInput.placeholder = locked ? 'Pricing…' : '0.00';
+    card.querySelector('.amount-input').classList.toggle('locked', locked);
+  };
+
+  // An open request prices every matching vehicle up front. Picking one loads
+  // its figures exactly as a single-vehicle suggestion would.
+  const pickVehicle = (sn, explicit) => {
+    const m = (matching?.vehicles || []).find(v => v.sn === sn) || null;
+    state.vehicleSn = m?.sn || null;
+    state.vehicleName = m?.name || '';
+    // a pick answers any "pick a vehicle first" warning still on the card
+    const msg = card.querySelector('.card-msg');
+    if (explicit && msg) msg.innerHTML = '';
+    list.querySelectorAll('.bd-match').forEach(b => b.classList.toggle('chosen', b.dataset.sn === state.vehicleSn));
+
+    if (m?.candidates?.length && matching.route) {
+      if (explicit) state.touched = false;   // a different vehicle brings its own figures
+      // a large party bus carries its own, longer minimum
+      const route = { ...matching.route, minimumNote: m.minimumNote || matching.route.minimumNote };
+      render({ route, repositioning: matching.repositioning || {}, candidates: m.candidates }, true);
+      showNote();
+      return;
+    }
+
+    // never send one vehicle at another vehicle's suggested price
+    if (explicit && !state.touched) {
+      state.base = '';
+      state.lines = [];
+      baseInput.value = '';
+      rerender();
+    }
+    wrap.innerHTML = '';
+    margin.hidden = true;
+    repo.innerHTML = '';
+    note.textContent = matching?.error
+      ? `${matching.error}${m ? ' Enter a price manually below.' : ''}`
+      : m ? 'No rate in the sheet for this vehicle. Enter a price manually below.'
+        : (matching?.vehicles || []).length ? 'Pick a vehicle above to load its price.' : '';
+    note.classList.toggle('err', !!matching?.error);
+    showNote();
+  };
+
+  const showMatches = (m) => {
+    matching = m || { vehicles: [] };
+    cardMatching[card.dataset.id] = matching;
+    const vehicles = matching.vehicles || [];
+    list.innerHTML = vehicles.length
+      ? vehicles.map(matchHtml).join('')
+      : `<div class="bd-match-empty">${matching.error
+        ? 'No vehicles to show.'
+        : 'No vehicles in the fleet fit this request. Decline it, or reply to the customer with an alternative.'}</div>`;
+    // a recalculation keeps the admin's pick while that vehicle still fits
+    pickVehicle(vehicles.some(v => v.sn === state.vehicleSn) ? state.vehicleSn : null, false);
+  };
+
+  const load = async (baseId) => {
+    note.textContent = isOpen ? 'Checking the fleet…' : baseId ? 'Recalculating…' : 'Working out a suggested price…';
+    note.classList.remove('err');
+    showNote();   // otherwise a recalculation stays hidden behind the empty class
+    if (go) go.disabled = true;
+    if (again) again.disabled = true;
+    setBaseLocked(true);
+
+    try {
+      if (isOpen) {
+        const res = await api(`/api/quotes/${card.dataset.id}/match`, {
+          method: 'POST',
+          body: JSON.stringify({ baseId }),
+        });
+        showMatches(res.matching);
+      } else {
+        const res = await api(`/api/quotes/${card.dataset.id}/suggest`, {
+          method: 'POST',
+          body: JSON.stringify({
+            baseId,
+            retailRate: card.dataset.retail || undefined,
+            affiliateRate: card.dataset.affiliate || undefined,
+          }),
+        });
+        render(res, true);
+      }
+    } catch (err) {
+      note.textContent = isOpen
+        ? `Could not check the fleet: ${err.message}`
+        : `No suggestion available: ${err.message} Enter a price manually below.`;
+      note.classList.add('err');
+      showNote();
+      wrap.innerHTML = '';
+      margin.hidden = true;
+    } finally {
+      if (go) go.disabled = false;
+      if (again) again.disabled = false;
+      setBaseLocked(false);   // editable once we have an answer, success or not
+      showNote();
+    }
+  };
+
+  // let the admin change which yard the trip departs from, then re-price
+  (async () => {
+    try {
+      const res = await api(`/api/quotes/${card.dataset.id}/bases-for`);
+      bases = res.bases;
+      if (bases.length > 1) {
+        // an open request was already priced from a base; show that one
+        const current = (isOpen && matching?.baseId) || res.recommendedId;
+        select.innerHTML = bases.map(b =>
+          `<option value="${esc(b.id)}" ${b.id === current ? 'selected' : ''}>${esc(b.label)}</option>`
+        ).join('');
+        pick.hidden = false;
+      }
+    } catch { /* the picker is optional; the suggestion still loads */ }
+  })();
+
+  if (go) go.addEventListener('click', () => load(select.value));
+  card.addEventListener('tip-toggle', () => { if (lastShown) render(lastShown, false); });
+  if (again) again.addEventListener('click', () => load(select.value || null));
+  if (list) {
+    list.addEventListener('click', (e) => {
+      const btn = e.target.closest('.bd-match');
+      if (btn) pickVehicle(btn.dataset.sn, true);
+    });
+  }
+
+  // open requests are matched when they arrive; fetch only if that never finished
+  if (isOpen && cardMatching[card.dataset.id]?.computedAt) showMatches(cardMatching[card.dataset.id]);
+  else load(null);
+}
+
+// Requests taken before addresses carried coordinates still need pins, so those
+// are geocoded once, on demand, and kept for the rest of the session.
+async function resolveCoords(id) {
+  const have = cardCoords[id] || {};
+  const addrs = cardAddresses[id] || {};
+  const missing = Object.keys(addrs)
+    .filter(k => addrs[k] && !Number.isFinite(have[k]?.lat));
+  if (!missing.length) return have;
+
+  const geocoder = new google.maps.Geocoder();
+  const found = await Promise.all(missing.map(k => new Promise((resolve) => {
+    geocoder.geocode({ address: addrs[k] }, (res, status) => {
+      const loc = status === 'OK' ? res?.[0]?.geometry?.location : null;
+      resolve([k, loc ? { lat: loc.lat(), lng: loc.lng() } : null]);
+    });
+  })));
+
+  const next = { ...have };
+  found.forEach(([k, point]) => { if (point) next[k] = point; });
+  cardCoords[id] = next;
+  return next;
+}
+
+// Maps are billed per load, so one is only created when the admin asks to see it.
+function wireTripMap(card, btn) {
+  const el = card.querySelector('.trip-map');
+  const key = card.querySelector('.map-key');
+  const store = {};
+  let shown = false;
+
+  btn.addEventListener('click', async () => {
+    if (shown) {                       // toggle it away again
+      el.hidden = true; key.hidden = true; shown = false;
+      btn.textContent = 'View trip on map';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Loading map…';
+    try {
+      if (!(await loadGoogleMaps())) throw new Error('Maps unavailable');
+      const q = await resolveCoords(card.dataset.id);
+      if (!Object.values(q).some(p => Number.isFinite(p?.lat))) {
+        throw new Error('Addresses not mappable');
+      }
+      renderTripMap(el, q, store, cardRoutes[card.dataset.id] || null);
+      key.hidden = false;
+      shown = true;
+      btn.textContent = 'Hide map';
+    } catch (err) {
+      btn.textContent = err.message === 'Addresses not mappable' ? err.message : 'Map unavailable';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// damage or cleaning found after the trip: the admin sets the amount and the server bills it
+function wireExtraCharge(card, box) {
+  const form = box.querySelector('.xc-form');
+  const open = box.querySelector('.btn-xc-open');
+  const submit = box.querySelector('.xc-submit');
+  const msg = box.querySelector('.xc-msg');
+  const show = (text, kind) => { msg.innerHTML = `<div class="alert alert-${kind}" style="margin:.8rem 0 0">${esc(text)}</div>`; };
+
+  open.addEventListener('click', () => {
+    form.hidden = false;
+    open.hidden = true;
+    form.querySelector('.xc-desc').focus();
+  });
+  box.querySelector('.xc-cancel').addEventListener('click', () => {
+    form.hidden = true;
+    open.hidden = false;
+    msg.innerHTML = '';
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const kind = form.querySelector('.xc-kind').value;
+    const description = form.querySelector('.xc-desc').value.trim();
+    const amount = round2(Number(form.querySelector('.xc-amount').value));
+    if (!description) return show('Describe the charge. The customer will see it.', 'error');
+    if (!(amount > 0)) return show('Enter an amount.', 'error');
+
+    // a preview only; the server prices the fee itself
+    const onCard = box.dataset.card === '1';
+    const rate = Number(box.dataset.rate) || 0;
+    const fee = onCard ? round2(amount * rate) : 0;
+    const confirmed = await openModal({
+      title: onCard ? 'Charge the card on file?' : 'Send this invoice?',
+      message: onCard
+        ? `The card on file will be charged now and ${card.dataset.email} emailed an invoice.`
+        : `${card.dataset.email} will be emailed an invoice with a payment link.`,
+      details: [
+        { label: 'Charge', value: CHARGE_LABELS[kind] },
+        { label: 'Description', value: description },
+        { label: 'Amount', value: money(amount) },
+        ...(onCard && fee ? [{ label: `Processing fee (${Math.round(rate * 100)}%)`, value: money(fee) }] : []),
+        ...(onCard ? [{ label: 'Total', value: money(round2(amount + fee)), total: true }] : []),
+      ],
+      confirmLabel: onCard ? 'Charge card' : 'Send invoice',
+    });
+    if (!confirmed) return;
+
+    submit.disabled = true;
+    try {
+      const res = await api(`/api/quotes/${card.dataset.id}/charges`, {
+        method: 'POST',
+        body: JSON.stringify({ kind, description, amount }),
+      });
+      if (res.charged) show(`Charged ${money(res.charge.total)} to the card on file. The customer has been emailed an invoice.`, 'ok');
+      else if (res.cardError) show(`The card was declined (${res.cardError}). The customer has been emailed an invoice with a payment link instead.`, 'error');
+      else if (res.emailError) show(`Saved, but the invoice email could not be sent: ${res.emailError}`, 'error');
+      else show('The customer has been emailed an invoice with a payment link.', 'ok');
+      form.hidden = true;
+      setTimeout(loadRequests, 2500);
+    } catch (err) {
+      show(err.message, 'error');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  box.querySelectorAll('.btn-confirm-charge').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!await confirmArrived()) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/quotes/${card.dataset.id}/charges/${btn.dataset.charge}/confirm-offline`, { method: 'PATCH' });
+        loadRequests();
+      } catch (err) {
+        show(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+// a confirmed payment emails the customer a receipt, so it must not be confirmed on trust
+const confirmArrived = () => openModal({
+  title: 'Has this payment arrived?',
+  message: 'Only confirm once the money shows in the account. The customer is emailed a receipt straight away.',
+  confirmLabel: 'Yes, it has arrived',
+});
+
+// money that arrived by Zelle or cash is only known to the admin
+function wireConfirmOffline(btn, id, msg) {
+  btn.addEventListener('click', async () => {
+    if (!await confirmArrived()) return;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'Confirming…';
+    try {
+      const res = await api(`/api/quotes/${id}/confirm-offline`, { method: 'PATCH' });
+      if (msg) {
+        msg.className = 'card-msg ok';
+        msg.textContent = `Marked paid: ${money(res.amountPaid)}`;
+      }
+      loadRequests();
+    } catch (err) {
+      if (msg) { msg.className = 'card-msg err'; msg.textContent = err.message; }
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+}
+
+function wireCards() {
+  document.querySelectorAll('.req-card').forEach((card) => {
+    const id = card.dataset.id;
+    const msg = card.querySelector('.card-msg');
+    const mapBtn = card.querySelector('.req-map-btn');
+    if (mapBtn) wireTripMap(card, mapBtn);
+
+    const confirmBtn = card.querySelector('.btn-confirm');
+    if (confirmBtn) wireConfirmOffline(confirmBtn, id, msg);
+
+    const pic = card.querySelector('.req-vehicle-pic.clickable');
+    if (pic) {
+      pic.addEventListener('click', () => {
+        const all = (vehicleRates || {})[pic.dataset.sn]?.pics || [];
+        if (all.length) openLightbox(all, card.querySelector('.req-vehicle-name')?.textContent || '', 0);
+      });
+    }
+
+    const charge = card.querySelector('.btn-charge');
+    if (charge) wireCharge(card, charge);
+
+    const extra = card.querySelector('.xc');
+    if (extra) wireExtraCharge(card, extra);
+
+    const accept = card.querySelector('.btn-accept');
+    const decline = card.querySelector('.btn-decline');
+    if (!accept) return;
+
+    const state = wireBreakdown(card);
+    const isOpen = card.dataset.kind === 'open';
+    const acceptLabel = accept.textContent;
+
+    const setBusy = (busy) => {
+      accept.disabled = busy;
+      decline.disabled = busy;
+    };
+    const showMsg = (text, kind = 'error') => {
+      msg.innerHTML = `<div class="alert alert-${kind}" style="margin:.9rem 0 0">${esc(text)}</div>`;
+    };
+
+    accept.addEventListener('click', async () => {
+      if (isOpen && !state.vehicleSn) return showMsg('Pick a vehicle to offer first.');
+      const baseFare = Number(state.base);
+      if (!Number.isFinite(baseFare) || baseFare <= 0) return showMsg('Enter a base fare first.');
+      const unlabelled = state.lines.find(l => !String(l.label).trim());
+      if (unlabelled) return showMsg('Every line item needs a label.');
+      const depositPercent = depositPercentOf(card);
+      if (!validDepositPercent(depositPercent)) return showMsg('Deposit must be a whole number from 1 to 100.');
+      // one row per charge, so the admin can check each figure before it goes out
+      const byCard = cardPrice(state.total, depositPercent);
+      const details = [
+        { label: 'Base fare', value: money(baseFare) },
+        ...priceQuote(baseFare, state.lines).priced.map(l => ({ label: l.label, value: money(l.amount) })),
+        { label: 'Subtotal', value: money(state.total) },
+        { label: `Card processing fee (${round2(cardFeeRate * 100)}%)`, value: money(byCard.fee) },
+        { label: 'Total by card', value: money(byCard.grand), total: true },
+        ...(state.customerTip ? [{ label: 'Gratuity', value: `Customer chooses 10–20% of ${tipBasisLabel(state)}` }] : []),
+        depositPercent === 100
+          ? { label: 'Deposit', value: 'Full payment only' }
+          : { label: `Deposit (${depositPercent}%) by card`, value: money(byCard.deposit) },
+      ];
+
+      const confirmed = await openModal({
+        title: 'Send this quote?',
+        message: `${isOpen ? `${state.vehicleName} at ` : ''}${money(byCard.grand)} by card will be emailed to ${card.dataset.email} with a payment link.`,
+        details,
+        confirmLabel: 'Send quote',
+      });
+      if (!confirmed) return;
+
+      setBusy(true);
+      accept.textContent = 'Sending…';
+      try {
+        await api(`/api/quotes/${id}/accept`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            vehicleSn: state.vehicleSn || undefined,
+            depositPercent,
+            customerGratuity: !!state.customerTip,
+            gratuityBasis: state.customerTip ? state.tipBasis : undefined,
+            baseFare,
+            lineItems: state.lines.map(l => ({
+              id: l.id,
+              label: String(l.label).trim(),
+              mode: l.mode,
+              value: Number(l.value) || 0,
+              basis: l.basis,
+            })),
+          }),
+        });
+        showMsg('Quote sent. The customer has been emailed a payment link.', 'ok');
+        setTimeout(loadRequests, 1200);
+      } catch (err) {
+        showMsg(err.message);
+        setBusy(false);
+        accept.textContent = acceptLabel;
+      }
+    });
+
+    decline.addEventListener('click', async () => {
+      const reason = await openModal({
+        title: 'Decline this request?',
+        message: `${card.dataset.email} will be emailed the reason you give below.`,
+        confirmLabel: 'Decline request',
+        danger: true,
+        input: {
+          label: 'Reason',
+          placeholder: isOpen ? 'e.g. Nothing suitable is free on that date' : 'e.g. That vehicle is already booked for those dates',
+          required: true,
+          requiredMessage: 'A reason is required. The customer will see it.',
+        },
+      });
+      if (reason === null) return;
+
+      setBusy(true);
+      decline.textContent = 'Sending…';
+      try {
+        await api(`/api/quotes/${id}/decline`, {
+          method: 'PATCH',
+          body: JSON.stringify({ reason: reason.trim() }),
+        });
+        showMsg('Request declined. The customer has been emailed.', 'ok');
+        setTimeout(loadRequests, 1200);
+      } catch (err) {
+        showMsg(err.message);
+        setBusy(false);
+        decline.textContent = 'Decline';
+      }
+    });
+  });
+}
+
+function init() {
+  // shared photo viewer, used by the vehicle thumbnails on each card
+  if (typeof initLightbox === 'function' && document.getElementById('lightbox')) initLightbox();
+
+  document.getElementById('login-form').addEventListener('submit', onLogin);
+  document.getElementById('status-filter').addEventListener('change', loadRequests);
+  document.getElementById('refresh-btn').addEventListener('click', loadRequests);
+  document.getElementById('logout-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    sessionStorage.removeItem(TOKEN_KEY);
+    showLogin();
+  });
+
+  if (getToken()) {
+    showDash();
+    loadRequests();
+  } else {
+    showLogin();
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
