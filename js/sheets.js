@@ -1,42 +1,11 @@
 // Shared utilities — loaded before page-specific scripts.
 
+// the backend reads the sheet, which is private; this list carries no prices or owner details
 async function fetchVehicles() {
-  const range = encodeURIComponent(`${CONFIG.SHEET_NAME}!A:L`);
-  const url   = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}/values/${range}?key=${CONFIG.API_KEY}`;
-
-  const res = await fetch(url);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error?.message || `HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-  const rows = data.values || [];
-  if (rows.length < 2) return [];
-
-  // Normalise header names: lowercase, strip all non-alphanumeric chars.
-  // "Vehicle Make" → "vehiclemake", "Aff. Price" → "affprice", "S/N" → "sn"
-  const headers = rows[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
-
-  return rows.slice(1)
-    .filter(row => row.some(c => String(c || '').trim()))
-    .map(row => {
-      const v = {};
-      headers.forEach((h, i) => { v[h] = String(row[i] || '').trim(); });
-      return v;
-    });
-}
-
-// Fire-and-forget POST to Apps Script.
-// no-cors + text/plain avoids the preflight; we can't read the response body.
-async function saveVehicles(vehicles) {
-  const payload = Array.isArray(vehicles) ? vehicles : [vehicles];
-  await fetch(CONFIG.APPS_SCRIPT_URL, {
-    method:  'POST',
-    mode:    'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify(payload),
-  });
+  const res = await fetch(`${CONFIG.API_BASE}/api/vehicles`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.vehicles || [];
 }
 
 function formatPrice(price) {

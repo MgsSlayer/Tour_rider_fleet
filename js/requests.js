@@ -168,7 +168,7 @@ async function loadVehicleRates() {
   if (vehicleRates) return vehicleRates;
   vehicleRates = {};
   try {
-    (await fetchVehicles()).forEach(v => {
+    (await api('/api/vehicles/rates')).vehicles.forEach(v => {
       vehicleRates[v.sn] = {
         retail: parseFloat(String(v.retprice).replace(/[^0-9.]/g, '')) || '',
         affiliate: parseFloat(String(v.affprice).replace(/[^0-9.]/g, '')) || '',

@@ -21,6 +21,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// the backend adds them to the sheet; api() carries the admin login
+const saveVehicles = (vehicles) => api('/api/vehicles', { method: 'POST', body: JSON.stringify({ vehicles }) });
+
 // ── Add Vehicle Form ─────────────────────────────────────────────────────────
 
 document.getElementById('add-form').addEventListener('submit', async e => {
@@ -152,7 +155,7 @@ function parseRows(rows) {
   if (rows.length < 2) return [];
   const headerMap = {};
   rows[0].forEach((h, i) => {
-    // Same normalisation as sheets.js: lowercase, strip non-alphanumeric
+    // Same normalisation as the backend's fleetService: lowercase, strip non-alphanumeric
     const key = String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     headerMap[key] = i;
   });
