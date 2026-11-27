@@ -214,7 +214,7 @@ async function loadRequests() {
         cardCoords[q._id][`stop${i + 1}`] = stop.coords;
         cardAddresses[q._id][`stop${i + 1}`] = stop.address;
       });
-      if (q.kind === 'open') cardMatching[q._id] = q.matching || null;
+      if (q.kind === 'open' || q.matching?.computedAt) cardMatching[q._id] = q.matching || null;
     });
     list.innerHTML = quotes.map(renderCard).join('');
     wireCards();
@@ -232,6 +232,7 @@ function renderCard(q) {
 
   return `
   <div class="req-card" data-id="${q._id}" data-kind="${isOpen ? 'open' : 'vehicle'}" data-email="${esc(q.customer.email)}"
+       data-vehicle="${esc(q.vehicle?.name || q.vehicle?.type || 'requested vehicle')}"
        data-retail="${esc(rates.retail)}" data-affiliate="${esc(rates.affiliate)}">
     <div class="req-head">
       <div class="req-who">
@@ -270,6 +271,7 @@ function renderCard(q) {
     <div class="trip-summary" style="margin:1rem 0 0">
       <dl>
         ${isOpen ? `<dt>Wanted</dt><dd>${esc(wantsLabel(q.wants))}</dd>` : ''}
+        ${q.requestedVehicle?.sn ? `<dt>Requested</dt><dd>${esc(q.requestedVehicle.name || q.requestedVehicle.type || 'Vehicle')} · S/N ${esc(q.requestedVehicle.sn)}, offered the vehicle above instead</dd>` : ''}
         <dt>Trip</dt><dd>${esc(q.tripType)} · ${q.passengers} passengers</dd>
         <dt>Date</dt><dd>${esc(q.date)} ${esc(q.pickupTime)}${q.finalDropoffTime ? ` → ${esc(q.finalDropoffTime)}` : ''}</dd>
         <dt>Pick-up</dt><dd>${esc(q.pickupAddress)}</dd>
@@ -318,7 +320,14 @@ function renderCard(q) {
             <button type="button" class="bd-matches-refresh">Check the fleet again</button>
           </div>
           <div class="bd-match-list"></div>
-        </div>` : ''}
+        </div>` : `
+        <div class="bd-matches bd-offer" hidden>
+          <div class="bd-matches-head">
+            <span>Offer instead</span>
+            <label class="bd-offer-all"><input type="checkbox" class="bd-offer-alltypes"> Show all types</label>
+          </div>
+          <div class="bd-match-list"></div>
+        </div>`}
         <div class="bd-suggest">
           <span class="bd-suggest-note">Working out a suggested price…</span>
         </div>
@@ -374,6 +383,7 @@ function renderCard(q) {
     </div>
     <div class="req-actions">
       <button class="btn-accept">${isOpen ? 'Send vehicle &amp; price' : 'Accept &amp; send quote'}</button>
+      ${isOpen ? '' : '<button type="button" class="btn-offer">Offer another vehicle</button>'}
       <button class="btn-decline">Decline</button>
     </div>
     <div class="card-msg"></div>` : ''}
@@ -809,10 +819,16 @@ function wireSuggest(card, state, rerender) {
   const isOpen = card.dataset.kind === 'open';
   const list = card.querySelector('.bd-match-list');
   const again = card.querySelector('.bd-matches-refresh');
+  const offerBtn = card.querySelector('.btn-offer');
+  const offerPanel = card.querySelector('.bd-offer');
+  const allTypes = card.querySelector('.bd-offer-alltypes');
   if (!note) return;
 
   let bases = [];
   let matching = null;
+  // the vehicle list stands in for the single suggestion on open requests and while offering another vehicle
+  const listing = () => isOpen || !!state.offering;
+  let loads = 0;
 
   const applyCandidate = (c) => {
     state.touched = false;         // an explicit pick replaces whatever was there
@@ -943,13 +959,18 @@ function wireSuggest(card, state, rerender) {
       ? vehicles.map(matchHtml).join('')
       : `<div class="bd-match-empty">${matching.error
         ? 'No vehicles to show.'
-        : 'No vehicles in the fleet fit this request. Decline it, or reply to the customer with an alternative.'}</div>`;
+        : isOpen ? 'No vehicles in the fleet fit this request. Decline it, or reply to the customer with an alternative.'
+          : allTypes.checked ? 'No other vehicle in the fleet fits this trip.'
+            : 'No other vehicle of this type fits this trip. Tick Show all types to see the rest of the fleet.'}</div>`;
     // a recalculation keeps the admin's pick while that vehicle still fits
     pickVehicle(vehicles.some(v => v.sn === state.vehicleSn) ? state.vehicleSn : null, false);
   };
 
   const load = async (baseId) => {
-    note.textContent = isOpen ? 'Checking the fleet…' : baseId ? 'Recalculating…' : 'Working out a suggested price…';
+    // only the latest load may fill the card, so a slow answer can't land after the admin moved on
+    const run = ++loads;
+    const listed = listing();
+    note.textContent = listed ? 'Checking the fleet…' : baseId ? 'Recalculating…' : 'Working out a suggested price…';
     note.classList.remove('err');
     showNote();   // otherwise a recalculation stays hidden behind the empty class
     if (go) go.disabled = true;
@@ -957,12 +978,12 @@ function wireSuggest(card, state, rerender) {
     setBaseLocked(true);
 
     try {
-      if (isOpen) {
+      if (listed) {
         const res = await api(`/api/quotes/${card.dataset.id}/match`, {
           method: 'POST',
-          body: JSON.stringify({ baseId }),
+          body: JSON.stringify({ baseId, ...(isOpen ? {} : { allTypes: allTypes.checked }) }),
         });
-        showMatches(res.matching);
+        if (run === loads) showMatches(res.matching);
       } else {
         const res = await api(`/api/quotes/${card.dataset.id}/suggest`, {
           method: 'POST',
@@ -972,10 +993,11 @@ function wireSuggest(card, state, rerender) {
             affiliateRate: card.dataset.affiliate || undefined,
           }),
         });
-        render(res, true);
+        if (run === loads) render(res, true);
       }
     } catch (err) {
-      note.textContent = isOpen
+      if (run !== loads) return;
+      note.textContent = listed
         ? `Could not check the fleet: ${err.message}`
         : `No suggestion available: ${err.message} Enter a price manually below.`;
       note.classList.add('err');
@@ -983,12 +1005,40 @@ function wireSuggest(card, state, rerender) {
       wrap.innerHTML = '';
       margin.hidden = true;
     } finally {
-      if (go) go.disabled = false;
-      if (again) again.disabled = false;
-      setBaseLocked(false);   // editable once we have an answer, success or not
-      showNote();
+      if (run === loads) {
+        if (go) go.disabled = false;
+        if (again) again.disabled = false;
+        setBaseLocked(false);   // editable once we have an answer, success or not
+        showNote();
+      }
     }
   };
+
+  // a requested vehicle that isn't free: list the others, same type first, and price whichever is picked
+  const setOffering = (on) => {
+    state.offering = on;
+    offerPanel.hidden = !on;
+    offerBtn.textContent = on ? 'Keep requested vehicle' : 'Offer another vehicle';
+    card.querySelector('.btn-accept').textContent = on ? 'Send vehicle & price' : 'Accept & send quote';
+    state.vehicleSn = null;
+    state.vehicleName = '';
+    // the editor only ever holds the figures of the vehicle that would be sent
+    state.touched = false;
+    state.base = '';
+    state.lines = [];
+    baseInput.value = '';
+    wrap.innerHTML = '';
+    margin.hidden = true;
+    repo.innerHTML = '';
+    rerender();
+    const cached = cardMatching[card.dataset.id];
+    if (on && cached?.computedAt && !!cached.allTypes === allTypes.checked) showMatches(cached);
+    else load(select.value || null);
+  };
+  if (offerBtn) {
+    offerBtn.addEventListener('click', () => setOffering(!state.offering));
+    allTypes.addEventListener('change', () => load(select.value || null));
+  }
 
   // let the admin change which yard the trip departs from, then re-price
   (async () => {
@@ -1218,18 +1268,19 @@ function wireCards() {
 
     const state = wireBreakdown(card);
     const isOpen = card.dataset.kind === 'open';
-    const acceptLabel = accept.textContent;
+    const offer = card.querySelector('.btn-offer');
 
     const setBusy = (busy) => {
       accept.disabled = busy;
       decline.disabled = busy;
+      if (offer) offer.disabled = busy;
     };
     const showMsg = (text, kind = 'error') => {
       msg.innerHTML = `<div class="alert alert-${kind}" style="margin:.9rem 0 0">${esc(text)}</div>`;
     };
 
     accept.addEventListener('click', async () => {
-      if (isOpen && !state.vehicleSn) return showMsg('Pick a vehicle to offer first.');
+      if ((isOpen || state.offering) && !state.vehicleSn) return showMsg('Pick a vehicle to offer first.');
       const baseFare = Number(state.base);
       if (!Number.isFinite(baseFare) || baseFare <= 0) return showMsg('Enter a base fare first.');
       const unlabelled = state.lines.find(l => !String(l.label).trim());
@@ -1251,14 +1302,16 @@ function wireCards() {
       ];
 
       const confirmed = await openModal({
-        title: 'Send this quote?',
-        message: `${isOpen ? `${state.vehicleName} at ` : ''}${money(byCard.grand)} by card will be emailed to ${card.dataset.email} with a payment link.`,
+        title: state.offering ? 'Offer this vehicle instead?' : 'Send this quote?',
+        message: `${isOpen || state.offering ? `${state.vehicleName} at ` : ''}${money(byCard.grand)} by card will be emailed to ${card.dataset.email} with a payment link${
+          state.offering ? `, in place of the ${card.dataset.vehicle} they requested` : ''}.`,
         details,
         confirmLabel: 'Send quote',
       });
       if (!confirmed) return;
 
       setBusy(true);
+      const acceptLabel = accept.textContent;
       accept.textContent = 'Sending…';
       try {
         await api(`/api/quotes/${id}/accept`, {
@@ -1278,7 +1331,9 @@ function wireCards() {
             })),
           }),
         });
-        showMsg('Quote sent. The customer has been emailed a payment link.', 'ok');
+        showMsg(state.offering
+          ? 'Offer sent. The customer has been emailed the other vehicle with a payment link.'
+          : 'Quote sent. The customer has been emailed a payment link.', 'ok');
         setTimeout(loadRequests, 1200);
       } catch (err) {
         showMsg(err.message);
